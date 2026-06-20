@@ -59,7 +59,7 @@ fun EditorView(
     var isSaving by remember { mutableStateOf(false) }
     var isExplorerExpanded by remember { mutableStateOf(true) }
 
-    val localWorkspace = File(context.filesDir, "workspace").apply { mkdirs() }
+    val localWorkspace = remember { File(context.filesDir, "workspace") }
     val clipboardManager = LocalClipboardManager.current
 
     val speechLauncher = rememberLauncherForActivityResult(
@@ -96,10 +96,13 @@ fun EditorView(
                 }
                 ExecutionMode.SSH -> SshConnection.listDirectory(config, config.workspacePath)
                 ExecutionMode.SANDBOX -> {
-                    localWorkspace.listFiles()
-                        ?.map { WorkspaceFile(it.name, it.absolutePath, it.isDirectory, it.length()) }
-                        ?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
-                        ?: emptyList()
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        localWorkspace.mkdirs()
+                        localWorkspace.listFiles()
+                            ?.map { WorkspaceFile(it.name, it.absolutePath, it.isDirectory, it.length()) }
+                            ?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+                            ?: emptyList()
+                    }
                 }
             }
         }
@@ -154,7 +157,9 @@ fun EditorView(
                                                 }
                                                 ExecutionMode.SSH -> SshConnection.readFile(config, wFile.path)
                                                 ExecutionMode.SANDBOX -> try {
-                                                    File(wFile.path).readText()
+                                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                                        File(wFile.path).readText()
+                                                    }
                                                 } catch (e: Exception) { "Failed to read: ${e.message}" }
                                             }
                                         }
@@ -229,7 +234,12 @@ fun EditorView(
                                         }
                                     }
                                     ExecutionMode.SSH -> SshConnection.writeFile(config, path, fileContent)
-                                    ExecutionMode.SANDBOX -> try { File(path).writeText(fileContent); true } catch (e: Exception) { false }
+                                    ExecutionMode.SANDBOX -> try { 
+                                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                            File(path).writeText(fileContent)
+                                        }
+                                        true 
+                                    } catch (e: Exception) { false }
                                 }
                                 isSaving = false
                                 if (success) reloadFiles()
