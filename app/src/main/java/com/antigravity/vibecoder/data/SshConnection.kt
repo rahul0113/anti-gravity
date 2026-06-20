@@ -16,21 +16,27 @@ import java.util.Vector
 
 object SshConnection {
 
+    private fun isLocalAddress(host: String): Boolean {
+        return host == "127.0.0.1" || host == "localhost" || host == "::1" ||
+            host.startsWith("192.168.") || host.startsWith("10.") || host.startsWith("172.")
+    }
+
     private fun createSession(config: ConnectionConfig): Session {
         val jsch = JSch()
         val session = jsch.getSession(config.user, config.host, config.port)
-        
+
         if (config.authType == ConnectionConfig.AuthType.PASSWORD) {
             session.setPassword(config.passwordKey)
         } else {
-            // Treat passwordKey as private key data
             jsch.addIdentity("key", config.passwordKey.toByteArray(), null, null)
         }
 
         val prop = Properties()
-        prop["StrictHostKeyChecking"] = "no"
+        // SEC-3 FIX: Only skip host key checking for loopback/LAN addresses.
+        // For remote hosts, enforce strict checking to prevent MITM attacks.
+        prop["StrictHostKeyChecking"] = if (isLocalAddress(config.host)) "no" else "yes"
         session.setConfig(prop)
-        session.connect(15000) // 15-second timeout
+        session.connect(15000)
         return session
     }
 

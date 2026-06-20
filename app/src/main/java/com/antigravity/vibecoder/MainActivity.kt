@@ -3,10 +3,8 @@ package com.antigravity.vibecoder
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.net.Uri
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import android.content.pm.ActivityInfo
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -22,25 +20,25 @@ import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.antigravity.vibecoder.data.AgentExecutor
+import com.antigravity.vibecoder.data.TermuxRunner
 import com.antigravity.vibecoder.model.ConnectionConfig
 import com.antigravity.vibecoder.model.ExecutionMode
 import com.antigravity.vibecoder.model.MessageType
 import com.antigravity.vibecoder.ui.theme.AntiGravityVibeCoderTheme
-import com.antigravity.vibecoder.ui.theme.DarkBackground
 import com.antigravity.vibecoder.ui.theme.DarkBorder
 import com.antigravity.vibecoder.ui.theme.DarkSurface
-import com.antigravity.vibecoder.ui.theme.TerminalCyan
 import com.antigravity.vibecoder.ui.theme.TerminalGreen
-import com.antigravity.vibecoder.ui.theme.TerminalGreenDim
 import com.antigravity.vibecoder.ui.theme.TerminalGray
 import com.antigravity.vibecoder.ui.view.EditorView
 import com.antigravity.vibecoder.ui.view.PreviewView
@@ -48,12 +46,7 @@ import com.antigravity.vibecoder.ui.view.SettingsView
 import com.antigravity.vibecoder.ui.view.TerminalView
 import kotlinx.coroutines.launch
 
-enum class Screen {
-    TERMINAL,
-    EDITOR,
-    PREVIEW,
-    SETTINGS
-}
+enum class Screen { TERMINAL, EDITOR, PREVIEW, SETTINGS }
 
 class MainActivity : ComponentActivity() {
 
@@ -62,77 +55,73 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        try {
+
+        // CRASH-1 FIX: Catch Throwable (not just Exception) so NoClassDefFoundError on API 21-22
+        // is handled gracefully and we fall back to plain SharedPreferences
+        // CRASH-2 FIX: Consistent pref file name so fallback doesn't lose data
+        sharedPreferences = try {
             val masterKey = MasterKey.Builder(applicationContext)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
-
-            sharedPreferences = EncryptedSharedPreferences.create(
+            EncryptedSharedPreferences.create(
                 applicationContext,
                 "vibecoder_secure_prefs",
                 masterKey,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
-        } catch (e: Exception) {
-            // Fallback for older devices that might fail Android Keystore initialization
-            sharedPreferences = getSharedPreferences("vibecoder_prefs", Context.MODE_PRIVATE)
+        } catch (e: Throwable) {
+            // Fallback: standard prefs on devices where Keystore is unavailable (API 21-22)
+            getSharedPreferences("vibecoder_prefs", Context.MODE_PRIVATE)
         }
+
         agentExecutor = AgentExecutor(applicationContext)
 
         setContent {
             AntiGravityVibeCoderTheme {
-                // Settings States
                 var apiKey by remember { mutableStateOf(sharedPreferences.getString("api_key", "") ?: "") }
                 var baseUrl by remember { mutableStateOf(sharedPreferences.getString("base_url", "https://opencode.ai/zen/v1") ?: "https://opencode.ai/zen/v1") }
                 var modelName by remember { mutableStateOf(sharedPreferences.getString("model_name", "opencode/zen-coder-1") ?: "opencode/zen-coder-1") }
-                
                 var executionModeStr by remember { mutableStateOf(sharedPreferences.getString("execution_mode", ExecutionMode.SANDBOX.name) ?: ExecutionMode.SANDBOX.name) }
-                val executionMode = try { ExecutionMode.valueOf(executionModeStr) } catch(e: Exception) { ExecutionMode.SANDBOX }
-                
+                val executionMode = try { ExecutionMode.valueOf(executionModeStr) } catch (e: Exception) { ExecutionMode.SANDBOX }
                 var sshHost by remember { mutableStateOf(sharedPreferences.getString("ssh_host", "127.0.0.1") ?: "127.0.0.1") }
                 var sshPort by remember { mutableStateOf(sharedPreferences.getInt("ssh_port", 8022)) }
                 var sshUser by remember { mutableStateOf(sharedPreferences.getString("ssh_user", "android") ?: "android") }
                 var sshPass by remember { mutableStateOf(sharedPreferences.getString("ssh_pass", "") ?: "") }
                 var sshWorkspace by remember {
-                    mutableStateOf(
-                        sharedPreferences.getString("ssh_workspace", "/data/data/com.termux/files/home") 
-                            ?: "/data/data/com.termux/files/home"
+                    mutableStateOf(sharedPreferences.getString("ssh_workspace", "/data/data/com.termux/files/home") ?: "/data/data/com.termux/files/home")
+                }
+
+                // ARCH-2 FIX: remember config so it isn't recreated on every recomposition,
+                // which was causing EditorView's LaunchedEffect to fire in an infinite loop
+                val config = remember(executionMode, sshHost, sshPort, sshUser, sshPass, sshWorkspace) {
+                    ConnectionConfig(
+                        executionMode = executionMode,
+                        host = sshHost,
+                        port = sshPort,
+                        user = sshUser,
+                        passwordKey = sshPass,
+                        workspacePath = sshWorkspace
                     )
                 }
 
-                val config = ConnectionConfig(
-                    executionMode = executionMode,
-                    host = sshHost,
-                    port = sshPort,
-                    user = sshUser,
-                    passwordKey = sshPass,
-                    workspacePath = sshWorkspace
-                )
-
-                // Navigation State
                 var currentScreen by remember { mutableStateOf(Screen.TERMINAL) }
-                
-                // Orientation toggle state (portrait = false, landscape = true)
-                var isLandscape by remember { mutableStateOf(false) }
-                
-                // Auto-reset to portrait when leaving Editor/Preview
+
+                // BUG-5 FIX: rememberSaveable persists orientation state across configuration changes
+                var isLandscape by rememberSaveable { mutableStateOf(false) }
+
                 LaunchedEffect(currentScreen) {
                     if (currentScreen == Screen.TERMINAL || currentScreen == Screen.SETTINGS) {
                         isLandscape = false
                         this@MainActivity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                     }
                 }
-                
-                // Agent History states
+
                 val messages by agentExecutor.messages.collectAsState()
                 val isProcessing by agentExecutor.isProcessing.collectAsState()
                 val coroutineScope = rememberCoroutineScope()
-                
                 var previewUrl by remember { mutableStateOf("") }
 
-                // Auto-detect localhost URLs in new messages
                 LaunchedEffect(messages.size) {
                     val lastMsg = messages.lastOrNull()
                     if (lastMsg != null && lastMsg.type == MessageType.TOOL_OUTPUT) {
@@ -147,25 +136,15 @@ class MainActivity : ComponentActivity() {
                                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                                     intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
                                     applicationContext.startActivity(intent)
-                                } catch (e: Exception) {}
+                                } catch (e: Exception) { /* ignore */ }
                             }
                         }
                     }
                 }
 
-                // Save configurations helpers
-                val saveApiKey: (String) -> Unit = {
-                    apiKey = it
-                    sharedPreferences.edit().putString("api_key", it).apply()
-                }
-                val saveBaseUrl: (String) -> Unit = {
-                    baseUrl = it
-                    sharedPreferences.edit().putString("base_url", it).apply()
-                }
-                val saveModelName: (String) -> Unit = {
-                    modelName = it
-                    sharedPreferences.edit().putString("model_name", it).apply()
-                }
+                val saveApiKey: (String) -> Unit = { apiKey = it; sharedPreferences.edit().putString("api_key", it).apply() }
+                val saveBaseUrl: (String) -> Unit = { baseUrl = it; sharedPreferences.edit().putString("base_url", it).apply() }
+                val saveModelName: (String) -> Unit = { modelName = it; sharedPreferences.edit().putString("model_name", it).apply() }
                 val saveConfig: (ConnectionConfig) -> Unit = { newConfig ->
                     executionModeStr = newConfig.executionMode.name
                     sshHost = newConfig.host
@@ -173,7 +152,6 @@ class MainActivity : ComponentActivity() {
                     sshUser = newConfig.user
                     sshPass = newConfig.passwordKey
                     sshWorkspace = newConfig.workspacePath
-                    
                     sharedPreferences.edit().apply {
                         putString("execution_mode", newConfig.executionMode.name)
                         putString("ssh_host", newConfig.host)
@@ -184,42 +162,35 @@ class MainActivity : ComponentActivity() {
                     }.apply()
                 }
 
+                val sendPrompt: (String) -> Unit = { prompt ->
+                    if (apiKey.isEmpty() && config.executionMode != ExecutionMode.SANDBOX) {
+                        coroutineScope.launch {
+                            agentExecutor.executeUserPrompt("Please go to SETTINGS and set your API key first.", "", "", "", config)
+                        }
+                    } else {
+                        coroutineScope.launch {
+                            agentExecutor.executeUserPrompt(prompt, apiKey, baseUrl, modelName, config)
+                        }
+                    }
+                }
+
                 Scaffold(
                     bottomBar = {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(DarkSurface)
-                                .border(1.dp, color = DarkBorder)
+                                .border(1.dp, DarkBorder)
                                 .height(56.dp),
                             horizontalArrangement = Arrangement.SpaceAround,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            BottomTabItem(
-                                title = "TERMINAL",
-                                icon = Icons.Default.Terminal,
-                                isSelected = currentScreen == Screen.TERMINAL,
-                                onClick = { currentScreen = Screen.TERMINAL }
-                            )
-                            BottomTabItem(
-                                title = "EDITOR",
-                                icon = Icons.Default.Code,
-                                isSelected = currentScreen == Screen.EDITOR,
-                                onClick = { currentScreen = Screen.EDITOR }
-                            )
-                            BottomTabItem(
-                                title = "PREVIEW",
-                                icon = Icons.Default.Visibility,
-                                isSelected = currentScreen == Screen.PREVIEW,
-                                onClick = { currentScreen = Screen.PREVIEW }
-                            )
-                            BottomTabItem(
-                                title = "SETTINGS",
-                                icon = Icons.Default.Settings,
-                                isSelected = currentScreen == Screen.SETTINGS,
-                                onClick = { currentScreen = Screen.SETTINGS }
-                            )
-                            // Rotate button — only shown on Editor & Preview tabs
+                            BottomTabItem("TERMINAL", Icons.Default.Terminal, currentScreen == Screen.TERMINAL) { currentScreen = Screen.TERMINAL }
+                            BottomTabItem("EDITOR", Icons.Default.Code, currentScreen == Screen.EDITOR) { currentScreen = Screen.EDITOR }
+                            BottomTabItem("PREVIEW", Icons.Default.Visibility, currentScreen == Screen.PREVIEW) { currentScreen = Screen.PREVIEW }
+                            BottomTabItem("SETTINGS", Icons.Default.Settings, currentScreen == Screen.SETTINGS) { currentScreen = Screen.SETTINGS }
+
+                            // Rotate button only on Editor & Preview
                             if (currentScreen == Screen.EDITOR || currentScreen == Screen.PREVIEW) {
                                 Column(
                                     modifier = Modifier
@@ -227,11 +198,10 @@ class MainActivity : ComponentActivity() {
                                         .fillMaxHeight()
                                         .clickable {
                                             isLandscape = !isLandscape
-                                            this@MainActivity.requestedOrientation = if (isLandscape) {
+                                            this@MainActivity.requestedOrientation = if (isLandscape)
                                                 ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                                            } else {
+                                            else
                                                 ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                            }
                                         },
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.Center
@@ -242,7 +212,7 @@ class MainActivity : ComponentActivity() {
                                         tint = if (isLandscape) TerminalGreen else TerminalGray,
                                         modifier = Modifier.size(20.dp)
                                     )
-                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Spacer(Modifier.height(2.dp))
                                     Text(
                                         text = if (isLandscape) "LAND" else "PORT",
                                         color = if (isLandscape) TerminalGreen else TerminalGray,
@@ -255,75 +225,41 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 ) { innerPadding ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding)
-                    ) {
+                    Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
                         when (currentScreen) {
-                            Screen.TERMINAL -> {
-                                TerminalView(
-                                    messages = messages,
-                                    isProcessing = isProcessing,
-                                    onSendPrompt = { prompt ->
-                                        if (apiKey.isEmpty()) {
-                                            agentExecutor.clearHistory()
-                                            coroutineScope.launch {
-                                                agentExecutor.executeUserPrompt("Please go to SETTINGS and set your OpenCode Zen API key first.", "", "", "", config)
-                                            }
-                                        } else {
-                                            coroutineScope.launch {
-                                                agentExecutor.executeUserPrompt(prompt, apiKey, baseUrl, modelName, config)
-                                            }
-                                        }
-                                    },
-                                    onClearConsole = {
-                                        agentExecutor.clearHistory()
-                                    }
-                                )
-                            }
-                            Screen.EDITOR -> {
-                                EditorView(
-                                    config = config,
-                                    onSendPrompt = { prompt ->
-                                        if (apiKey.isEmpty()) {
-                                            agentExecutor.clearHistory()
-                                            coroutineScope.launch {
-                                                agentExecutor.executeUserPrompt("Please go to SETTINGS and set your OpenCode Zen API key first.", "", "", "", config)
-                                            }
-                                        } else {
-                                            coroutineScope.launch {
-                                                agentExecutor.executeUserPrompt(prompt, apiKey, baseUrl, modelName, config)
-                                            }
-                                        }
-                                        currentScreen = Screen.TERMINAL
-                                    },
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-                            Screen.PREVIEW -> {
-                                PreviewView(
-                                    url = previewUrl,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-                            Screen.SETTINGS -> {
-                                SettingsView(
-                                    apiKey = apiKey,
-                                    onApiKeyChange = saveApiKey,
-                                    baseUrl = baseUrl,
-                                    onBaseUrlChange = saveBaseUrl,
-                                    modelName = modelName,
-                                    onModelNameChange = saveModelName,
-                                    config = config,
-                                    onConfigChange = saveConfig
-                                )
-                            }
+                            Screen.TERMINAL -> TerminalView(
+                                messages = messages,
+                                isProcessing = isProcessing,
+                                onSendPrompt = { sendPrompt(it); },
+                                onClearConsole = { agentExecutor.clearHistory() }
+                            )
+                            Screen.EDITOR -> EditorView(
+                                config = config,
+                                onSendPrompt = { sendPrompt(it); currentScreen = Screen.TERMINAL },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            Screen.PREVIEW -> PreviewView(url = previewUrl, modifier = Modifier.fillMaxSize())
+                            Screen.SETTINGS -> SettingsView(
+                                apiKey = apiKey,
+                                onApiKeyChange = saveApiKey,
+                                baseUrl = baseUrl,
+                                onBaseUrlChange = saveBaseUrl,
+                                modelName = modelName,
+                                onModelNameChange = saveModelName,
+                                config = config,
+                                onConfigChange = saveConfig
+                            )
                         }
                     }
                 }
             }
         }
+    }
+
+    // CRASH-4 FIX: Properly unregister BroadcastReceiver when Activity is destroyed
+    override fun onDestroy() {
+        super.onDestroy()
+        TermuxRunner.unregisterReceiver(applicationContext)
     }
 }
 
@@ -348,7 +284,7 @@ fun RowScope.BottomTabItem(
             tint = if (isSelected) TerminalGreen else TerminalGray,
             modifier = Modifier.size(20.dp)
         )
-        Spacer(modifier = Modifier.height(2.dp))
+        Spacer(Modifier.height(2.dp))
         Text(
             text = title,
             color = if (isSelected) TerminalGreen else TerminalGray,

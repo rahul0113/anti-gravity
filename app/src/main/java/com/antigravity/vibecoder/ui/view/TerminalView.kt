@@ -33,11 +33,19 @@ fun TerminalView(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
-    // Auto-scroll to bottom when new messages arrive
+    // BUG-3 FIX: Smart auto-scroll — only scrolls to bottom when user is already near it
+    // This prevents violently yanking the user back when they scroll up to read past output
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
-            coroutineScope.launch {
-                listState.animateScrollToItem(messages.size - 1)
+            val layoutInfo = listState.layoutInfo
+            val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val totalItems = layoutInfo.totalItemsCount
+            // Only auto-scroll if user is within 3 messages of the bottom
+            val isNearBottom = lastVisibleIndex >= totalItems - 3 || totalItems <= 3
+            if (isNearBottom) {
+                coroutineScope.launch {
+                    listState.animateScrollToItem(messages.size - 1)
+                }
             }
         }
     }

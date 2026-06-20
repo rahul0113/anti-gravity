@@ -1,18 +1,14 @@
 package com.antigravity.vibecoder.ui.view
 
-import android.content.Context
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
 import android.app.Activity
 import android.content.Intent
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -24,7 +20,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -37,6 +35,9 @@ import com.antigravity.vibecoder.model.WorkspaceFile
 import com.antigravity.vibecoder.ui.theme.*
 import kotlinx.coroutines.launch
 import java.io.File
+
+// SEC-2 FIX: Proper single-quote escaping for shell commands to prevent path injection
+private fun String.shellSingleQuote(): String = "'" + this.replace("'", "'\\''") + "'"
 
 @Composable
 fun EditorView(
@@ -53,7 +54,7 @@ fun EditorView(
     var isSaving by remember { mutableStateOf(false) }
     var isExplorerExpanded by remember { mutableStateOf(true) }
 
-    val localWorkspace = File(LocalContext.current.filesDir, "workspace").apply { mkdirs() }
+    val localWorkspace = File(context.filesDir, "workspace").apply { mkdirs() }
     val clipboardManager = LocalClipboardManager.current
 
     val speechLauncher = rememberLauncherForActivityResult(
@@ -61,9 +62,7 @@ fun EditorView(
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.getOrNull(0)
-            if (!spokenText.isNullOrEmpty()) {
-                onSendPrompt(spokenText)
-            }
+            if (!spokenText.isNullOrEmpty()) onSendPrompt(spokenText)
         }
     }
 
@@ -84,42 +83,43 @@ fun EditorView(
         return list.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
     }
 
-    // Helper function to load workspace file list
     fun reloadFiles() {
         coroutineScope.launch {
-            when (config.executionMode) {
+            fileList = when (config.executionMode) {
                 ExecutionMode.TERMUX_SERVICE -> {
-                    val cmd = "cd ${config.workspacePath} && for f in *; do [ -d \"\$f\" ] && echo -e \"\$f\\t0\\td\" || echo -e \"\$f\\t\$(stat -c%s \"\$f\")\\tf\"; done"
+                    // SEC-2 FIX: Use single-quoted path in shell command
+                    val path = config.workspacePath.shellSingleQuote()
+                    val cmd = "cd $path && for f in *; do [ -d \"\$f\" ] && echo -e \"\$f\\t0\\td\" || echo -e \"\$f\\t\$(stat -c%s \"\$f\")\\tf\"; done"
                     val res = TermuxRunner.executeCommand(context, cmd, config.workspacePath)
-                    fileList = if (res.error == null) parseTermuxLs(res.stdout, config.workspacePath) else emptyList()
+                    if (res.error == null) parseTermuxLs(res.stdout, config.workspacePath) else emptyList()
                 }
-                ExecutionMode.SSH -> {
-                    fileList = SshConnection.listDirectory(config, config.workspacePath)
-                }
+                ExecutionMode.SSH -> SshConnection.listDirectory(config, config.workspacePath)
                 ExecutionMode.SANDBOX -> {
-                    val list = mutableListOf<WorkspaceFile>()
-                    localWorkspace.listFiles()?.forEach { file ->
-                        list.add(WorkspaceFile(file.name, file.absolutePath, file.isDirectory, file.length()))
-                    }
-                    fileList = list.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+                    localWorkspace.listFiles()
+                        ?.map { WorkspaceFile(it.name, it.absolutePath, it.isDirectory, it.length()) }
+                        ?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+                        ?: emptyList()
                 }
             }
         }
     }
 
-    // Load file list on start
-    LaunchedEffect(config) {
+    // BUG-1 FIX: Use Unit key so this only fires once on composition, not on every config recompose
+    LaunchedEffect(Unit) {
         reloadFiles()
     }
 
-    Row(modifier = modifier.fillMaxSize().background(DarkBackground)) {
+    // BUG-2 FIX: Shared scroll state syncs line numbers with the editor text field
+    val editorScrollState = rememberScrollState()
+
+    Row(modifier = modifier.fillMaxSize().background(com.antigravity.vibecoder.ui.theme.DarkBackground)) {
         // Collapsible File Drawer Sidebar
         if (isExplorerExpanded) {
             Column(
                 modifier = Modifier
                     .weight(0.35f)
                     .fillMaxHeight()
-                    .border(1.dp, color = DarkBorder)
+                    .border(1.dp, DarkBorder)
                     .padding(8.dp)
             ) {
                 Row(
@@ -128,18 +128,11 @@ fun EditorView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("FILES", color = TerminalGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    IconButton(
-                        onClick = { reloadFiles() },
-                        modifier = Modifier.size(24.dp)
-                    ) {
+                    IconButton(onClick = { reloadFiles() }, modifier = Modifier.size(24.dp)) {
                         Icon(Icons.Default.Refresh, contentDescription = "Reload Files", tint = TerminalGreen, modifier = Modifier.size(16.dp))
                     }
                 }
-
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
                     items(fileList) { wFile ->
                         Row(
                             modifier = Modifier
@@ -151,18 +144,16 @@ fun EditorView(
                                         coroutineScope.launch {
                                             fileContent = when (config.executionMode) {
                                                 ExecutionMode.TERMUX_SERVICE -> {
-                                                    val res = TermuxRunner.executeCommand(context, "cat \"${wFile.path}\"", config.workspacePath)
-                                                     if (res.error == null) res.stdout else "Error reading file: ${res.error}"
+                                                    // SEC-2 FIX: Single-quote the file path to prevent injection
+                                                    val quotedPath = wFile.path.shellSingleQuote()
+                                                    val res = TermuxRunner.executeCommand(context, "cat -- $quotedPath", config.workspacePath)
+                                                    if (res.error == null) res.stdout else "Error reading file: ${res.error}"
                                                 }
-                                                ExecutionMode.SSH -> {
-                                                    SshConnection.readFile(config, wFile.path)
-                                                }
-                                                ExecutionMode.SANDBOX -> {
-                                                    try {
-                                                        File(wFile.path).readText()
-                                                    } catch (e: Exception) {
-                                                        "Failed to read file: ${e.message}"
-                                                    }
+                                                ExecutionMode.SSH -> SshConnection.readFile(config, wFile.path)
+                                                ExecutionMode.SANDBOX -> try {
+                                                    File(wFile.path).readText()
+                                                } catch (e: Exception) {
+                                                    "Failed to read file: ${e.message}"
                                                 }
                                             }
                                         }
@@ -177,7 +168,7 @@ fun EditorView(
                                 tint = if (wFile.isDirectory) TerminalCyan else TerminalGray,
                                 modifier = Modifier.size(16.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(Modifier.width(6.dp))
                             Text(
                                 text = wFile.name,
                                 color = if (currentFilePath == wFile.path) TerminalGreen else TerminalWhite,
@@ -201,16 +192,13 @@ fun EditorView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(DarkSurface)
-                    .border(1.dp, color = DarkBorder)
+                    .border(1.dp, DarkBorder)
                     .padding(8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = { isExplorerExpanded = !isExplorerExpanded },
-                        modifier = Modifier.size(24.dp)
-                    ) {
+                    IconButton(onClick = { isExplorerExpanded = !isExplorerExpanded }, modifier = Modifier.size(24.dp)) {
                         Icon(
                             imageVector = if (isExplorerExpanded) Icons.Default.MenuOpen else Icons.Default.Menu,
                             contentDescription = "Toggle Sidebar",
@@ -218,7 +206,7 @@ fun EditorView(
                             modifier = Modifier.size(18.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(
                         text = "> $currentFileName",
                         color = TerminalCyan,
@@ -227,7 +215,6 @@ fun EditorView(
                         fontFamily = FontFamily.Monospace
                     )
                 }
-
                 if (currentFilePath != null) {
                     Button(
                         onClick = {
@@ -236,27 +223,23 @@ fun EditorView(
                             coroutineScope.launch {
                                 val success = when (config.executionMode) {
                                     ExecutionMode.TERMUX_SERVICE -> {
-                                        val b64 = android.util.Base64.encodeToString(fileContent.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
-                                        val cmd = "mkdir -p \$(dirname \"$path\") && echo \"$b64\" | base64 -d > \"$path\""
+                                        // SEC-2 FIX: Use base64 encoding to safely write file content
+                                        val b64 = android.util.Base64.encodeToString(
+                                            fileContent.toByteArray(Charsets.UTF_8),
+                                            android.util.Base64.NO_WRAP
+                                        )
+                                        val quotedPath = path.shellSingleQuote()
+                                        val cmd = "mkdir -p \$(dirname $quotedPath) && printf '%s' '$b64' | base64 -d > $quotedPath"
                                         val res = TermuxRunner.executeCommand(context, cmd, config.workspacePath)
                                         res.error == null && res.exitCode == 0
                                     }
-                                    ExecutionMode.SSH -> {
-                                        SshConnection.writeFile(config, path, fileContent)
-                                    }
-                                    ExecutionMode.SANDBOX -> {
-                                        try {
-                                            File(path).writeText(fileContent)
-                                            true
-                                        } catch (e: Exception) {
-                                            false
-                                        }
-                                    }
+                                    ExecutionMode.SSH -> SshConnection.writeFile(config, path, fileContent)
+                                    ExecutionMode.SANDBOX -> try {
+                                        File(path).writeText(fileContent); true
+                                    } catch (e: Exception) { false }
                                 }
                                 isSaving = false
-                                if (success) {
-                                    reloadFiles()
-                                }
+                                if (success) reloadFiles()
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = TerminalGreenDim),
@@ -276,27 +259,21 @@ fun EditorView(
 
             // Editor Work Area
             if (currentFilePath == null) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "SELECT A FILE TO VIBE EDIT",
-                        color = TerminalGray,
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("SELECT A FILE TO VIBE EDIT", color = TerminalGray, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
                 }
             } else {
+                // CRASH-5 FIX: Removed conflicting .fillMaxSize() from the Row that has .weight(1f)
+                // ARCH-3 / BUG-2 FIX: Use shared editorScrollState so line numbers scroll in sync
                 Row(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .weight(1f)
+                        .weight(1f)       // Takes remaining height in the Column
+                        .fillMaxWidth()
                 ) {
-                    // Line numbers column
                     val lineCount = fileContent.lines().size
                     val lineNumbers = (1..lineCount).joinToString("\n") { it.toString() }
-                    
+
+                    // BUG-2 FIX: Line numbers share editorScrollState — they scroll together
                     Text(
                         text = lineNumbers,
                         color = TerminalGreenDim.copy(alpha = 0.5f),
@@ -307,16 +284,16 @@ fun EditorView(
                             .fillMaxHeight()
                             .background(DarkSurface)
                             .padding(horizontal = 8.dp, vertical = 8.dp)
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(editorScrollState)
                     )
 
-                    // Text Editor Field
                     OutlinedTextField(
                         value = fileContent,
                         onValueChange = { fileContent = it },
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .verticalScroll(editorScrollState),
                         textStyle = LocalTextStyle.current.copy(
                             fontFamily = FontFamily.Monospace,
                             fontSize = 12.sp,
@@ -324,8 +301,8 @@ fun EditorView(
                             color = TerminalWhite
                         ),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color.Transparent,
-                            unfocusedBorderColor = Color.Transparent
+                            focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                            unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent
                         )
                     )
                 }
@@ -338,7 +315,7 @@ fun EditorView(
                 .weight(0.10f)
                 .fillMaxHeight()
                 .background(DarkSurface)
-                .border(1.dp, color = DarkBorder)
+                .border(1.dp, DarkBorder)
                 .padding(4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -351,35 +328,22 @@ fun EditorView(
                 "ESC" to null,
                 "MIC" to Icons.Default.Mic
             )
-            
             keyboardButtons.forEach { (label, icon) ->
                 Button(
-                    onClick = { 
+                    onClick = {
                         when (label) {
                             "MIC" -> {
                                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                                     putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your vibe code prompt...")
                                 }
-                                try {
-                                    speechLauncher.launch(intent)
-                                } catch (e: Exception) {}
+                                try { speechLauncher.launch(intent) } catch (e: Exception) { /* no speech app */ }
                             }
-                            "COPY" -> {
-                                clipboardManager.setText(AnnotatedString(fileContent))
-                            }
-                            "PASTE" -> {
-                                val clipText = clipboardManager.getText()?.text
-                                if (clipText != null) {
-                                    fileContent += clipText
-                                }
-                            }
-                            "ENTER" -> {
-                                fileContent += "\n"
-                            }
-                            "CTRL", "ESC" -> {
-                                // To be mapped to terminal signals in future iterations
-                            }
+                            "COPY" -> clipboardManager.setText(AnnotatedString(fileContent))
+                            "PASTE" -> { val t = clipboardManager.getText()?.text; if (t != null) fileContent += t }
+                            "ENTER" -> fileContent += "\n"
+                            "CTRL" -> { /* Future: send ^C signal via Termux */ }
+                            "ESC" -> { /* Future: send ESC sequence via Termux */ }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = TerminalGreenDim.copy(alpha = 0.1f)),
@@ -390,31 +354,15 @@ fun EditorView(
                         .weight(1f)
                         .border(1.dp, TerminalGreenDim.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                         if (icon != null) {
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = label,
-                                tint = TerminalGreen,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
+                            Icon(imageVector = icon, contentDescription = label, tint = TerminalGreen, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.height(2.dp))
                         }
-                        Text(
-                            text = label,
-                            color = TerminalGreen,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            maxLines = 1
-                        )
+                        Text(text = label, color = TerminalGreen, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, maxLines = 1)
                     }
                 }
             }
         }
     }
 }
-
