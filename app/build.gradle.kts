@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "com.antigravity.vibecoder"
-        minSdk = 26
+        minSdk = 21
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
