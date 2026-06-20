@@ -44,7 +44,7 @@ fun PreviewView(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(DarkSurface)
-                .border(bottom = 1.dp, color = DarkBorder)
+                .border(1.dp, color = DarkBorder)
                 .padding(8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween

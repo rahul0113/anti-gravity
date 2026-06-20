@@ -52,7 +52,7 @@ fun TerminalView(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(DarkSurface)
-                .border(bottom = 1.dp, color = DarkBorder)
+                .border(1.dp, color = DarkBorder)
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
@@ -120,7 +120,7 @@ fun TerminalView(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(DarkSurface)
-                .border(top = 1.dp, color = DarkBorder)
+                .border(1.dp, color = DarkBorder)
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
