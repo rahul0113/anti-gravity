@@ -23,6 +23,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import com.antigravity.vibecoder.ui.theme.*
 
 @Composable
@@ -51,6 +54,23 @@ fun PreviewView(
                 destroy()
             }
             webViewRef = null
+        }
+    }
+
+    // B-3 FIX: Pause/Resume WebView correctly when the app is backgrounded
+    // This stops audio/video and heavy JS loops from running in the background.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> webViewRef?.onPause()
+                Lifecycle.Event.ON_RESUME -> webViewRef?.onResume()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 

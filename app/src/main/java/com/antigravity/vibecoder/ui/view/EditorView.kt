@@ -141,10 +141,15 @@ fun EditorView(
                                         coroutineScope.launch {
                                             fileContent = when (config.executionMode) {
                                                 ExecutionMode.TERMUX_SERVICE -> {
-                                                    val res = TermuxRunner.executeCommand(
-                                                        context, "cat -- ${wFile.path.shellSingleQuote()}", config.workspacePath
-                                                    )
-                                                    if (res.error == null) res.stdout else "Error: ${res.error}"
+                                                    // V-1 FIX: Termux intents crash if payload is > ~1MB. Restrict to 250KB.
+                                                    if (wFile.size > 250_000) {
+                                                        "// ERROR: File is too large (${wFile.size / 1024} KB).\n// Termux IPC intent transactions are limited to ~250KB.\n// Please switch to SSH mode to safely edit large files."
+                                                    } else {
+                                                        val res = TermuxRunner.executeCommand(
+                                                            context, "cat -- ${wFile.path.shellSingleQuote()}", config.workspacePath
+                                                        )
+                                                        if (res.error == null) res.stdout else "Error: ${res.error}"
+                                                    }
                                                 }
                                                 ExecutionMode.SSH -> SshConnection.readFile(config, wFile.path)
                                                 ExecutionMode.SANDBOX -> try {
@@ -206,13 +211,21 @@ fun EditorView(
                             coroutineScope.launch {
                                 val success = when (config.executionMode) {
                                     ExecutionMode.TERMUX_SERVICE -> {
-                                        val b64 = android.util.Base64.encodeToString(
-                                            fileContent.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP
-                                        )
-                                        val qPath = path.shellSingleQuote()
-                                        val cmd = "mkdir -p \$(dirname $qPath) && printf '%s' '$b64' | base64 -d > $qPath"
-                                        val res = TermuxRunner.executeCommand(context, cmd, config.workspacePath)
-                                        res.error == null && res.exitCode == 0
+                                        // V-1 FIX: Prevent intent transaction crash on save
+                                        if (fileContent.length > 250_000) {
+                                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                                android.widget.Toast.makeText(context, "File too large (>250KB) for Termux IPC. Use SSH mode.", android.widget.Toast.LENGTH_LONG).show()
+                                            }
+                                            false
+                                        } else {
+                                            val b64 = android.util.Base64.encodeToString(
+                                                fileContent.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP
+                                            )
+                                            val qPath = path.shellSingleQuote()
+                                            val cmd = "mkdir -p \$(dirname $qPath) && printf '%s' '$b64' | base64 -d > $qPath"
+                                            val res = TermuxRunner.executeCommand(context, cmd, config.workspacePath)
+                                            res.error == null && res.exitCode == 0
+                                        }
                                     }
                                     ExecutionMode.SSH -> SshConnection.writeFile(config, path, fileContent)
                                     ExecutionMode.SANDBOX -> try { File(path).writeText(fileContent); true } catch (e: Exception) { false }
@@ -245,8 +258,9 @@ fun EditorView(
                         .verticalScroll(editorScrollState)
                 ) {
                     Row(modifier = Modifier.fillMaxWidth()) {
-                        // Line numbers — O-6 FIX: only recalculated when line count changes
-                        val lineCount = remember(fileContent) { fileContent.lines().size }
+                        // Line numbers — P-1 FIX: Avoid string allocation (fileContent.lines().size creates thousands of objects)
+                        // Using count { it == '\n' } is O(N) but zero allocation.
+                        val lineCount = remember(fileContent) { fileContent.count { it == '\n' } + 1 }
                         val lineNumbers = remember(lineCount) { (1..lineCount).joinToString("\n") }
 
                         Text(

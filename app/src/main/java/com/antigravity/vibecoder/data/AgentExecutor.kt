@@ -69,18 +69,12 @@ class AgentExecutor(private val context: Context) {
                         }
                         addMessage("Executing opencode CLI via Termux IPC...", MessageType.AGENT_THOUGHT, "System")
 
-                        // O-7 FIX: Single combined command — only ONE Termux IPC round-trip
-                        // SEC-4: API key written via heredoc into a temp env file, sourced, deleted in one script
-                        val keyFilePath = "/data/local/tmp/.ag_env_${System.currentTimeMillis()}"
+                        // O-7 & P-2 FIX: Single combined command — passed directly via exports without temp file
+                        // Secure: variables are inline, no risk of leaving a file in /data/local/tmp
                         val combinedCmd = buildString {
-                            // Write env file, source it, delete it, then run opencode — all in one bash -c
-                            append("printf '%s\\n' ")
-                            append("\"export OPENCODE_API_KEY=${apiKey.shellSingleQuote()}\" ")
-                            append("\"export OPENCODE_BASE_URL=${baseUrl.shellSingleQuote()}\" ")
-                            append("\"export OPENCODE_MODEL=${model.shellSingleQuote()}\" ")
-                            append("> ${keyFilePath.shellSingleQuote()} && ")
-                            append("source ${keyFilePath.shellSingleQuote()} && ")
-                            append("rm -f ${keyFilePath.shellSingleQuote()} && ")
+                            append("export OPENCODE_API_KEY=${apiKey.shellSingleQuote()} && ")
+                            append("export OPENCODE_BASE_URL=${baseUrl.shellSingleQuote()} && ")
+                            append("export OPENCODE_MODEL=${model.shellSingleQuote()} && ")
                             append("cd ${config.workspacePath.shellSingleQuote()} && ")
                             append("opencode run ${prompt.shellSingleQuote()}")
                         }
@@ -94,8 +88,11 @@ class AgentExecutor(private val context: Context) {
                             return@withTimeout
                         }
                         addMessage("Executing opencode CLI via SSH...", MessageType.AGENT_THOUGHT, "System")
+                        // B-2 FIX: Include OPENCODE_BASE_URL and OPENCODE_MODEL for SSH mode
                         val sshCommand = "cd ${config.workspacePath.shellSingleQuote()} && " +
                             "OPENCODE_API_KEY=${apiKey.shellSingleQuote()} " +
+                            "OPENCODE_BASE_URL=${baseUrl.shellSingleQuote()} " +
+                            "OPENCODE_MODEL=${model.shellSingleQuote()} " +
                             "opencode run ${prompt.shellSingleQuote()}"
                         val output = SshConnection.executeCommand(config, sshCommand)
                         addMessage(output, MessageType.TOOL_OUTPUT, "opencode")

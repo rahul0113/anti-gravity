@@ -112,10 +112,17 @@ class MainActivity : ComponentActivity() {
                 // BUG-5 FIX: rememberSaveable persists orientation state across configuration changes
                 var isLandscape by rememberSaveable { mutableStateOf(false) }
 
-                LaunchedEffect(currentScreen) {
+                // B-1 FIX: Include isLandscape in LaunchedEffect keys so it correctly restores
+                // the landscape orientation when the app is backgrounded and recreated.
+                LaunchedEffect(currentScreen, isLandscape) {
                     if (currentScreen == Screen.TERMINAL || currentScreen == Screen.SETTINGS) {
                         isLandscape = false
                         this@MainActivity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    } else {
+                        this@MainActivity.requestedOrientation = if (isLandscape)
+                            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                        else
+                            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                     }
                 }
 
