@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import android.net.Uri
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -15,6 +16,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Visibility
@@ -112,6 +114,17 @@ class MainActivity : ComponentActivity() {
                 // Navigation State
                 var currentScreen by remember { mutableStateOf(Screen.TERMINAL) }
                 
+                // Orientation toggle state (portrait = false, landscape = true)
+                var isLandscape by remember { mutableStateOf(false) }
+                
+                // Auto-reset to portrait when leaving Editor/Preview
+                LaunchedEffect(currentScreen) {
+                    if (currentScreen == Screen.TERMINAL || currentScreen == Screen.SETTINGS) {
+                        isLandscape = false
+                        this@MainActivity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    }
+                }
+                
                 // Agent History states
                 val messages by agentExecutor.messages.collectAsState()
                 val isProcessing by agentExecutor.isProcessing.collectAsState()
@@ -206,6 +219,39 @@ class MainActivity : ComponentActivity() {
                                 isSelected = currentScreen == Screen.SETTINGS,
                                 onClick = { currentScreen = Screen.SETTINGS }
                             )
+                            // Rotate button — only shown on Editor & Preview tabs
+                            if (currentScreen == Screen.EDITOR || currentScreen == Screen.PREVIEW) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .clickable {
+                                            isLandscape = !isLandscape
+                                            this@MainActivity.requestedOrientation = if (isLandscape) {
+                                                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                            } else {
+                                                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                            }
+                                        },
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ScreenRotation,
+                                        contentDescription = "Rotate Screen",
+                                        tint = if (isLandscape) TerminalGreen else TerminalGray,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = if (isLandscape) "LAND" else "PORT",
+                                        color = if (isLandscape) TerminalGreen else TerminalGray,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
                         }
                     }
                 ) { innerPadding ->
