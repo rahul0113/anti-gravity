@@ -81,17 +81,26 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AntiGravityVibeCoderTheme {
-                var apiKey by remember { mutableStateOf(sharedPreferences.getString("api_key", "") ?: "") }
-                var baseUrl by remember { mutableStateOf(sharedPreferences.getString("base_url", "https://opencode.ai/zen/v1") ?: "https://opencode.ai/zen/v1") }
-                var modelName by remember { mutableStateOf(sharedPreferences.getString("model_name", "opencode/zen-coder-1") ?: "opencode/zen-coder-1") }
-                var executionModeStr by remember { mutableStateOf(sharedPreferences.getString("execution_mode", ExecutionMode.SANDBOX.name) ?: ExecutionMode.SANDBOX.name) }
+                // CRASH-3 FIX: Safe extensions for SharedPreferences to prevent SecurityException 
+                // when EncryptedSharedPreferences keystore is corrupted or desynced on device.
+                fun SharedPreferences.safeGetString(key: String, defValue: String): String {
+                    return try { getString(key, defValue) ?: defValue } catch (e: Exception) { defValue }
+                }
+                fun SharedPreferences.safeGetInt(key: String, defValue: Int): Int {
+                    return try { getInt(key, defValue) } catch (e: Exception) { defValue }
+                }
+
+                var apiKey by remember { mutableStateOf(sharedPreferences.safeGetString("api_key", "")) }
+                var baseUrl by remember { mutableStateOf(sharedPreferences.safeGetString("base_url", "https://opencode.ai/zen/v1")) }
+                var modelName by remember { mutableStateOf(sharedPreferences.safeGetString("model_name", "opencode/zen-coder-1")) }
+                var executionModeStr by remember { mutableStateOf(sharedPreferences.safeGetString("execution_mode", ExecutionMode.SANDBOX.name)) }
                 val executionMode = try { ExecutionMode.valueOf(executionModeStr) } catch (e: Exception) { ExecutionMode.SANDBOX }
-                var sshHost by remember { mutableStateOf(sharedPreferences.getString("ssh_host", "127.0.0.1") ?: "127.0.0.1") }
-                var sshPort by remember { mutableStateOf(sharedPreferences.getInt("ssh_port", 8022)) }
-                var sshUser by remember { mutableStateOf(sharedPreferences.getString("ssh_user", "android") ?: "android") }
-                var sshPass by remember { mutableStateOf(sharedPreferences.getString("ssh_pass", "") ?: "") }
+                var sshHost by remember { mutableStateOf(sharedPreferences.safeGetString("ssh_host", "127.0.0.1")) }
+                var sshPort by remember { mutableStateOf(sharedPreferences.safeGetInt("ssh_port", 8022)) }
+                var sshUser by remember { mutableStateOf(sharedPreferences.safeGetString("ssh_user", "android")) }
+                var sshPass by remember { mutableStateOf(sharedPreferences.safeGetString("ssh_pass", "")) }
                 var sshWorkspace by remember {
-                    mutableStateOf(sharedPreferences.getString("ssh_workspace", "/data/data/com.termux/files/home") ?: "/data/data/com.termux/files/home")
+                    mutableStateOf(sharedPreferences.safeGetString("ssh_workspace", "/data/data/com.termux/files/home"))
                 }
 
                 // ARCH-2 FIX: remember config so it isn't recreated on every recomposition,
