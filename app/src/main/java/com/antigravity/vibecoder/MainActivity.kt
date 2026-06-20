@@ -160,7 +160,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(DarkSurface)
-                                .border(top = 1.dp, color = DarkBorder)
+                                .border(1.dp, color = DarkBorder)
                                 .height(56.dp),
                             horizontalArrangement = Arrangement.SpaceAround,
                             verticalAlignment = Alignment.CenterVertically
@@ -205,7 +205,9 @@ class MainActivity : ComponentActivity() {
                                     onSendPrompt = { prompt ->
                                         if (apiKey.isEmpty()) {
                                             agentExecutor.clearHistory()
-                                            agentExecutor.executeUserPrompt("Please go to SETTINGS and set your OpenCode Zen API key first.", "", "", "", config)
+                                            coroutineScope.launch {
+                                                agentExecutor.executeUserPrompt("Please go to SETTINGS and set your OpenCode Zen API key first.", "", "", "", config)
+                                            }
                                         } else {
                                             coroutineScope.launch {
                                                 agentExecutor.executeUserPrompt(prompt, apiKey, baseUrl, modelName, config)
@@ -223,7 +225,9 @@ class MainActivity : ComponentActivity() {
                                     onSendPrompt = { prompt ->
                                         if (apiKey.isEmpty()) {
                                             agentExecutor.clearHistory()
-                                            agentExecutor.executeUserPrompt("Please go to SETTINGS and set your OpenCode Zen API key first.", "", "", "", config)
+                                            coroutineScope.launch {
+                                                agentExecutor.executeUserPrompt("Please go to SETTINGS and set your OpenCode Zen API key first.", "", "", "", config)
+                                            }
                                         } else {
                                             coroutineScope.launch {
                                                 agentExecutor.executeUserPrompt(prompt, apiKey, baseUrl, modelName, config)

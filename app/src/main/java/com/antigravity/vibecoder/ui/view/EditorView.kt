@@ -44,6 +44,7 @@ fun EditorView(
     onSendPrompt: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var fileList by remember { mutableStateOf<List<WorkspaceFile>>(emptyList()) }
     var currentFilePath by remember { mutableStateOf<String?>(null) }
@@ -89,7 +90,7 @@ fun EditorView(
             when (config.executionMode) {
                 ExecutionMode.TERMUX_SERVICE -> {
                     val cmd = "cd ${config.workspacePath} && for f in *; do [ -d \"\$f\" ] && echo -e \"\$f\\t0\\td\" || echo -e \"\$f\\t\$(stat -c%s \"\$f\")\\tf\"; done"
-                    val res = TermuxRunner.executeCommand(getLocalContextHelper(), cmd, config.workspacePath)
+                    val res = TermuxRunner.executeCommand(context, cmd, config.workspacePath)
                     fileList = if (res.error == null) parseTermuxLs(res.stdout, config.workspacePath) else emptyList()
                 }
                 ExecutionMode.SSH -> {
@@ -118,7 +119,7 @@ fun EditorView(
                 modifier = Modifier
                     .weight(0.35f)
                     .fillMaxHeight()
-                    .border(end = 1.dp, color = DarkBorder)
+                    .border(1.dp, color = DarkBorder)
                     .padding(8.dp)
             ) {
                 Row(
@@ -150,7 +151,7 @@ fun EditorView(
                                         coroutineScope.launch {
                                             fileContent = when (config.executionMode) {
                                                 ExecutionMode.TERMUX_SERVICE -> {
-                                                    val res = TermuxRunner.executeCommand(getLocalContextHelper(), "cat \"${wFile.path}\"", config.workspacePath)
+                                                    val res = TermuxRunner.executeCommand(context, "cat \"${wFile.path}\"", config.workspacePath)
                                                      if (res.error == null) res.stdout else "Error reading file: ${res.error}"
                                                 }
                                                 ExecutionMode.SSH -> {
@@ -200,7 +201,7 @@ fun EditorView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(DarkSurface)
-                    .border(bottom = 1.dp, color = DarkBorder)
+                    .border(1.dp, color = DarkBorder)
                     .padding(8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -237,7 +238,7 @@ fun EditorView(
                                     ExecutionMode.TERMUX_SERVICE -> {
                                         val b64 = android.util.Base64.encodeToString(fileContent.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
                                         val cmd = "mkdir -p \$(dirname \"$path\") && echo \"$b64\" | base64 -d > \"$path\""
-                                        val res = TermuxRunner.executeCommand(getLocalContextHelper(), cmd, config.workspacePath)
+                                        val res = TermuxRunner.executeCommand(context, cmd, config.workspacePath)
                                         res.error == null && res.exitCode == 0
                                     }
                                     ExecutionMode.SSH -> {
@@ -337,7 +338,7 @@ fun EditorView(
                 .weight(0.10f)
                 .fillMaxHeight()
                 .background(DarkSurface)
-                .border(start = 1.dp, color = DarkBorder)
+                .border(1.dp, color = DarkBorder)
                 .padding(4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -417,6 +418,3 @@ fun EditorView(
     }
 }
 
-// Composition helper to fetch context within Compose
-@Composable
-fun getLocalContextHelper(): Context = LocalContext.current
