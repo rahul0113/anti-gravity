@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "termux-vibe-coder": {
+      "command": "opencode",
+      "args": ["mcp", "start"],
+      "env": {
+        "OPENCODE_MODE": "termux"
+      }
+    }
+  }
+}

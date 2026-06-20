@@ -327,8 +327,20 @@ fun EditorView(
                             "COPY" -> clipboardManager.setText(AnnotatedString(fileContent))
                             "PASTE" -> { val t = clipboardManager.getText()?.text; if (t != null) fileContent += t }
                             "ENTER" -> fileContent += "\n"
-                            "CTRL" -> { /* Future: ^C via Termux */ }
-                            "ESC" -> { /* Future: ESC via Termux */ }
+                            "CTRL" -> { 
+                                // Send SIGINT equivalent by killing running opencode/bash processes
+                                if (config.executionMode == ExecutionMode.TERMUX_SERVICE) {
+                                    coroutineScope.launch {
+                                        TermuxRunner.executeCommand(context, "pkill -f opencode", config.workspacePath)
+                                    }
+                                }
+                            }
+                            "ESC" -> { 
+                                // Escape the editor view by clearing the current file selection
+                                currentFilePath = null
+                                currentFileName = "No File Selected"
+                                fileContent = ""
+                            }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = TerminalGreenDim.copy(alpha = 0.1f)),
