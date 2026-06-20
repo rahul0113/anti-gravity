@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -59,7 +61,22 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        sharedPreferences = getSharedPreferences("vibecoder_prefs", Context.MODE_PRIVATE)
+        try {
+            val masterKey = MasterKey.Builder(applicationContext)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+
+            sharedPreferences = EncryptedSharedPreferences.create(
+                applicationContext,
+                "vibecoder_secure_prefs",
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (e: Exception) {
+            // Fallback for older devices that might fail Android Keystore initialization
+            sharedPreferences = getSharedPreferences("vibecoder_prefs", Context.MODE_PRIVATE)
+        }
         agentExecutor = AgentExecutor(applicationContext)
 
         setContent {

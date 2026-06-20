@@ -1,7 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.AntiGravityVibeCoder" parent="android:Theme.Material.Light.NoActionBar">
+    <!-- Base application theme — AppCompat for maximum device compatibility -->
+    <style name="Theme.AntiGravityVibeCoder" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>
-        <item name="android:statusBarColor">#0A0A0A</item>
-        <item name="android:navigationBarColor">#0A0A0A</item>
+        <item name="colorPrimary">#00FF88</item>
+        <item name="colorPrimaryDark">#0A0A0A</item>
+        <item name="colorAccent">#00FFFF</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
     </style>
 </resources>
