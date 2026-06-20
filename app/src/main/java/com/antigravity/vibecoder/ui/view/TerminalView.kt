@@ -227,8 +227,10 @@ fun TerminalMessageItem(message: ChatMessage) {
                 fontFamily = FontFamily.Monospace
             )
             if (message.type != MessageType.AGENT_RESPONSE && message.type != MessageType.TOOL_OUTPUT) {
+                // CRASH-5 FIX: Truncate massive strings to prevent Compose Text layout OOM / height crashes
+                val safeText = if (message.text.length > 10000) message.text.take(10000) + "\n...[OUTPUT TRUNCATED FOR PERFORMANCE]" else message.text
                 Text(
-                    text = message.text,
+                    text = safeText,
                     color = TerminalWhite,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace
@@ -245,8 +247,10 @@ fun TerminalMessageItem(message: ChatMessage) {
                     .border(1.dp, DarkBorder, RoundedCornerShape(4.dp))
                     .padding(8.dp)
             ) {
+                // CRASH-5 FIX: Truncate massive strings to prevent Compose Text layout OOM / height crashes
+                val safeText = if (message.text.length > 15000) message.text.take(15000) + "\n...[OUTPUT TRUNCATED FOR PERFORMANCE]" else message.text
                 Text(
-                    text = message.text,
+                    text = safeText,
                     color = if (message.type == MessageType.TOOL_OUTPUT) TerminalGreenDim else TerminalWhite,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
