@@ -29,19 +29,25 @@ object TermuxRunner {
 
     private val resultReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent == null || intent.action != ACTION_RESULT) return
-            val requestId = intent.getStringExtra(EXTRA_REQUEST_ID) ?: return
+            try {
+                if (intent == null || intent.action != ACTION_RESULT) return
+                val requestId = intent.getStringExtra(EXTRA_REQUEST_ID) ?: return
 
-            val resultBundle = intent.getBundleExtra("com.termux.execute.plugin_result_bundle")
-                ?: intent.getBundleExtra("EXTRA_PLUGIN_RESULT_BUNDLE")
+                val resultBundle = intent.getBundleExtra("com.termux.execute.plugin_result_bundle")
+                    ?: intent.getBundleExtra("EXTRA_PLUGIN_RESULT_BUNDLE")
 
-            val stdout = resultBundle?.getString("stdout") ?: intent.getStringExtra("stdout") ?: ""
-            val stderr = resultBundle?.getString("stderr") ?: intent.getStringExtra("stderr") ?: ""
-            val exitCode = resultBundle?.getInt("exitCode", -1) ?: intent.getIntExtra("exitCode", -1)
-            val error = resultBundle?.getString("err") ?: intent.getStringExtra("err")
+                val stdout = resultBundle?.getString("stdout") ?: intent.getStringExtra("stdout") ?: ""
+                val stderr = resultBundle?.getString("stderr") ?: intent.getStringExtra("stderr") ?: ""
+                val exitCode = resultBundle?.getInt("exitCode", -1) ?: intent.getIntExtra("exitCode", -1)
+                val error = resultBundle?.getString("err") ?: intent.getStringExtra("err")
 
-            val callback = activeCallbacks.remove(requestId)
-            callback?.invoke(TermuxResult(stdout, stderr, exitCode, error))
+                val callback = activeCallbacks.remove(requestId)
+                callback?.invoke(TermuxResult(stdout, stderr, exitCode, error))
+            } catch (e: Throwable) {
+                // CRASH-6 FIX: Prevent framework crashes if the broadcast payload exceeds Binder limits
+                // (TransactionTooLargeException) or is malformed (BadParcelableException).
+                // The coroutine will gracefully time out instead of crashing the app.
+            }
         }
     }
 

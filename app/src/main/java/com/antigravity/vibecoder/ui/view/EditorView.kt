@@ -66,8 +66,12 @@ fun EditorView(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.getOrNull(0)
-            if (!spokenText.isNullOrEmpty()) onSendPrompt(spokenText)
+            try {
+                val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.getOrNull(0)
+                if (!spokenText.isNullOrEmpty()) onSendPrompt(spokenText)
+            } catch (e: Throwable) {
+                // Ignore speech recognition intent data unpacking errors
+            }
         }
     }
 
