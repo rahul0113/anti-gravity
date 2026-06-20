@@ -7,6 +7,7 @@ import com.antigravity.vibecoder.model.ExecutionMode
 import com.antigravity.vibecoder.model.MessageType
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withTimeout
 import java.io.File
 
@@ -18,17 +19,31 @@ class AgentExecutor(private val context: Context) {
     private val _isProcessing = MutableStateFlow(false)
     val isProcessing: StateFlow<Boolean> = _isProcessing
 
+    // B-4 FIX: Cache ZenApiClient so OkHttpClient connection pool is reused across messages
+    private var zenApiClient: ZenApiClient? = null
+    private var cachedApiKey = ""
+    private var cachedBaseUrl = ""
+    private var cachedModel = ""
+
+    private fun getZenClient(apiKey: String, baseUrl: String, model: String): ZenApiClient {
+        if (zenApiClient == null || apiKey != cachedApiKey || baseUrl != cachedBaseUrl || model != cachedModel) {
+            zenApiClient = ZenApiClient(apiKey, baseUrl, model)
+            cachedApiKey = apiKey
+            cachedBaseUrl = baseUrl
+            cachedModel = model
+        }
+        return zenApiClient!!
+    }
+
+    // C-5 FIX: StateFlow.update{} is atomic — prevents lost updates from concurrent addMessage calls
     private fun addMessage(text: String, type: MessageType, sender: String = "System") {
-        val updated = _messages.value.toMutableList()
-        updated.add(ChatMessage(sender = sender, text = text, type = type))
-        _messages.value = updated
+        _messages.update { current -> current + ChatMessage(sender = sender, text = text, type = type) }
     }
 
     fun clearHistory() {
         _messages.value = emptyList()
     }
 
-    // SEC-1 FIX: Proper single-quote shell escaping prevents ALL injection including backticks
     private fun String.shellSingleQuote(): String = "'" + this.replace("'", "'\\''") + "'"
 
     suspend fun executeUserPrompt(
@@ -40,75 +55,68 @@ class AgentExecutor(private val context: Context) {
     ) {
         if (_isProcessing.value) return
         _isProcessing.value = true
-
         addMessage(prompt, MessageType.USER, "User")
 
-        // CRASH-6 FIX: Always reset isProcessing even if an exception is thrown
         try {
-            when (config.executionMode) {
-                ExecutionMode.TERMUX_SERVICE -> {
-                    addMessage("Executing opencode CLI via Termux IPC...", MessageType.AGENT_THOUGHT, "System")
+            // S-3 FIX: Top-level 120-second timeout guards all execution modes including SSH hangs
+            withTimeout(120_000L) {
+                when (config.executionMode) {
+                    ExecutionMode.TERMUX_SERVICE -> {
+                        // B-5 FIX: Guard missing API key for non-SANDBOX modes explicitly
+                        if (apiKey.isEmpty()) {
+                            addMessage("No API key set. Please go to SETTINGS first.", MessageType.SYSTEM_ERROR)
+                            return@withTimeout
+                        }
+                        addMessage("Executing opencode CLI via Termux IPC...", MessageType.AGENT_THOUGHT, "System")
 
-                    // SEC-4 FIX: Write API key to a temp file, source it, delete it immediately
-                    // This prevents the key from appearing in bash history or process lists
-                    val keyFile = File(context.cacheDir, ".ag_env_tmp_${System.currentTimeMillis()}")
-                    val keyContent = buildString {
-                        appendLine("export OPENCODE_API_KEY=${apiKey.shellSingleQuote()}")
-                        appendLine("export OPENCODE_BASE_URL=${baseUrl.shellSingleQuote()}")
-                        appendLine("export OPENCODE_MODEL=${model.shellSingleQuote()}")
+                        // O-7 FIX: Single combined command — only ONE Termux IPC round-trip
+                        // SEC-4: API key written via heredoc into a temp env file, sourced, deleted in one script
+                        val keyFilePath = "/data/local/tmp/.ag_env_${System.currentTimeMillis()}"
+                        val combinedCmd = buildString {
+                            // Write env file, source it, delete it, then run opencode — all in one bash -c
+                            append("printf '%s\\n' ")
+                            append("\"export OPENCODE_API_KEY=${apiKey.shellSingleQuote()}\" ")
+                            append("\"export OPENCODE_BASE_URL=${baseUrl.shellSingleQuote()}\" ")
+                            append("\"export OPENCODE_MODEL=${model.shellSingleQuote()}\" ")
+                            append("> ${keyFilePath.shellSingleQuote()} && ")
+                            append("source ${keyFilePath.shellSingleQuote()} && ")
+                            append("rm -f ${keyFilePath.shellSingleQuote()} && ")
+                            append("cd ${config.workspacePath.shellSingleQuote()} && ")
+                            append("opencode run ${prompt.shellSingleQuote()}")
+                        }
+                        val res = TermuxRunner.executeCommand(context, combinedCmd, config.workspacePath)
+                        handleTermuxResult(res)
                     }
 
-                    // Write env file via Termux (cache dir is shared via app uid)
-                    val writeCmd = "cat > ${keyFile.absolutePath.shellSingleQuote()} << 'AGEOF'\n$keyContent\nAGEOF"
-
-                    // SEC-1 FIX: Use single-quote escaping for prompt — prevents backtick/subshell injection
-                    val cmd = buildString {
-                        append("source ${keyFile.absolutePath.shellSingleQuote()} && ")
-                        append("rm -f ${keyFile.absolutePath.shellSingleQuote()} && ")
-                        append("cd ${config.workspacePath.shellSingleQuote()} && ")
-                        append("opencode run ${prompt.shellSingleQuote()}")
-                    }
-
-                    val writeRes = TermuxRunner.executeCommand(context, writeCmd, config.workspacePath)
-                    if (writeRes.error != null) {
-                        // Fallback: pass key inline if env file write fails
-                        val fallbackCmd = "OPENCODE_API_KEY=${apiKey.shellSingleQuote()} " +
-                            "OPENCODE_BASE_URL=${baseUrl.shellSingleQuote()} " +
-                            "OPENCODE_MODEL=${model.shellSingleQuote()} " +
+                    ExecutionMode.SSH -> {
+                        if (apiKey.isEmpty()) {
+                            addMessage("No API key set. Please go to SETTINGS first.", MessageType.SYSTEM_ERROR)
+                            return@withTimeout
+                        }
+                        addMessage("Executing opencode CLI via SSH...", MessageType.AGENT_THOUGHT, "System")
+                        val sshCommand = "cd ${config.workspacePath.shellSingleQuote()} && " +
+                            "OPENCODE_API_KEY=${apiKey.shellSingleQuote()} " +
                             "opencode run ${prompt.shellSingleQuote()}"
-                        val res = TermuxRunner.executeCommand(context, fallbackCmd, config.workspacePath)
-                        handleTermuxResult(res)
-                    } else {
-                        val res = TermuxRunner.executeCommand(context, cmd, config.workspacePath)
-                        handleTermuxResult(res)
+                        val output = SshConnection.executeCommand(config, sshCommand)
+                        addMessage(output, MessageType.TOOL_OUTPUT, "opencode")
                     }
-                }
 
-                ExecutionMode.SSH -> {
-                    addMessage("Executing opencode CLI via SSH...", MessageType.AGENT_THOUGHT, "System")
-                    // SEC-1 FIX: Use single-quote escaping for SSH command too
-                    val sshCommand = "cd ${config.workspacePath.shellSingleQuote()} && " +
-                        "OPENCODE_API_KEY=${apiKey.shellSingleQuote()} " +
-                        "opencode run ${prompt.shellSingleQuote()}"
-                    val output = SshConnection.executeCommand(config, sshCommand)
-                    addMessage(output, MessageType.TOOL_OUTPUT, "opencode")
-                }
-
-                ExecutionMode.SANDBOX -> {
-                    // BUG-4 FIX: Wire ZenApiClient to SANDBOX mode so it actually works
-                    if (apiKey.isEmpty()) {
-                        addMessage(
-                            "No API key configured. Please go to SETTINGS and enter your OpenCode Zen API key.",
-                            MessageType.SYSTEM_ERROR
-                        )
-                    } else {
-                        addMessage("Calling OpenCode Zen API directly (Sandbox mode)...", MessageType.AGENT_THOUGHT, "System")
-                        val conversationHistory = _messages.value
+                    ExecutionMode.SANDBOX -> {
+                        if (apiKey.isEmpty()) {
+                            addMessage(
+                                "No API key configured. Go to SETTINGS → Zen API Key.",
+                                MessageType.SYSTEM_ERROR
+                            )
+                            return@withTimeout
+                        }
+                        addMessage("Calling OpenCode Zen API (Sandbox mode)...", MessageType.AGENT_THOUGHT, "System")
+                        val history = _messages.value
                             .filter { it.type == MessageType.USER || it.type == MessageType.AGENT_RESPONSE }
                             .map { ZenMessage(if (it.type == MessageType.USER) "user" else "assistant", it.text) }
 
-                        val client = ZenApiClient(apiKey, baseUrl, model)
-                        val result = client.getCompletion(conversationHistory)
+                        // B-4 FIX: Use cached client instead of creating a new one each call
+                        val client = getZenClient(apiKey, baseUrl, model)
+                        val result = client.getCompletion(history)
                         result.fold(
                             onSuccess = { addMessage(it, MessageType.AGENT_RESPONSE, "Zen AI") },
                             onFailure = { addMessage("API Error: ${it.message}", MessageType.SYSTEM_ERROR) }
@@ -116,10 +124,11 @@ class AgentExecutor(private val context: Context) {
                     }
                 }
             }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            addMessage("Operation timed out after 120 seconds. Check your connection and try again.", MessageType.SYSTEM_ERROR)
         } catch (e: Exception) {
             addMessage("Unexpected error: ${e.message}", MessageType.SYSTEM_ERROR)
         } finally {
-            // CRASH-6 FIX: Always reset, even if exception was thrown above
             _isProcessing.value = false
         }
     }
@@ -127,7 +136,7 @@ class AgentExecutor(private val context: Context) {
     private fun handleTermuxResult(res: TermuxRunner.TermuxResult) {
         if (res.error != null) {
             addMessage(
-                "Termux Execution Error: ${res.error}\nIs opencode installed? Run: pkg install opencode",
+                "Termux Error: ${res.error}\nIs opencode installed? Run: pkg install opencode",
                 MessageType.SYSTEM_ERROR
             )
         } else {

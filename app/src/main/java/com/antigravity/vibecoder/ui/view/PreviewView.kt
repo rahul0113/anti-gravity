@@ -34,6 +34,26 @@ fun PreviewView(
     var currentUrl by remember { mutableStateOf(url.ifEmpty { "about:blank" }) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
+    // B-1 FIX: Sync currentUrl and WebView when the incoming url prop changes
+    LaunchedEffect(url) {
+        if (url.isNotEmpty() && url != currentUrl) {
+            currentUrl = url
+            webViewRef?.loadUrl(url)
+        }
+    }
+
+    // C-4 FIX: Destroy WebView when composable leaves composition to prevent OOM
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewRef?.apply {
+                stopLoading()
+                clearHistory()
+                destroy()
+            }
+            webViewRef = null
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -44,7 +64,7 @@ fun PreviewView(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(DarkSurface)
-                .border(1.dp, color = DarkBorder)
+                .border(1.dp, DarkBorder)
                 .padding(8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
@@ -56,27 +76,21 @@ fun PreviewView(
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace
             )
-            
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Refresh Button
-                IconButton(
-                    onClick = { webViewRef?.reload() },
-                    modifier = Modifier.size(24.dp)
-                ) {
+                IconButton(onClick = { webViewRef?.reload() }, modifier = Modifier.size(24.dp)) {
                     Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = TerminalGreen, modifier = Modifier.size(16.dp))
                 }
-                
-                // Open in External Browser Button
                 IconButton(
                     onClick = {
                         if (currentUrl.isNotEmpty() && currentUrl != "about:blank") {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(currentUrl))
-                            context.startActivity(intent)
+                            try {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(currentUrl)))
+                            } catch (e: Exception) { /* no browser */ }
                         }
                     },
                     modifier = Modifier.size(24.dp)
                 ) {
-                    Icon(Icons.Default.OpenInBrowser, contentDescription = "Open in Chrome", tint = TerminalAmber, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.OpenInBrowser, contentDescription = "Open in Browser", tint = TerminalAmber, modifier = Modifier.size(16.dp))
                 }
             }
         }
@@ -85,19 +99,9 @@ fun PreviewView(
         OutlinedTextField(
             value = currentUrl,
             onValueChange = { currentUrl = it },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp)
-                .height(48.dp),
-            textStyle = LocalTextStyle.current.copy(
-                fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
-                color = TerminalWhite
-            ),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = TerminalGreenDim,
-                unfocusedBorderColor = DarkBorder
-            ),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).height(48.dp),
+            textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = TerminalWhite),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = TerminalGreenDim, unfocusedBorderColor = DarkBorder),
             singleLine = true,
             keyboardActions = androidx.compose.foundation.text.KeyboardActions(
                 onDone = { webViewRef?.loadUrl(currentUrl) }
@@ -117,9 +121,23 @@ fun PreviewView(
                     WebView(ctx).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
+
+                        // S-2 FIX: Restrict file system and content provider access
+                        settings.allowFileAccess = false
+                        settings.allowContentAccess = false
+                        @Suppress("DEPRECATION")
+                        settings.allowFileAccessFromFileURLs = false
+                        @Suppress("DEPRECATION")
+                        settings.allowUniversalAccessFromFileURLs = false
+
                         webViewClient = object : WebViewClient() {
-                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                return false // Load in this WebView
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView?,
+                                request: WebResourceRequest?
+                            ): Boolean {
+                                val reqUrl = request?.url?.toString() ?: return true
+                                // S-2 FIX: Only allow http/https — block file://, content://, javascript:
+                                return !(reqUrl.startsWith("http://") || reqUrl.startsWith("https://"))
                             }
                         }
                         loadUrl(currentUrl)

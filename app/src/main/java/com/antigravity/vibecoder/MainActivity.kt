@@ -52,6 +52,8 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var sharedPreferences: SharedPreferences
     private lateinit var agentExecutor: AgentExecutor
+    // S-4 FIX: Track whether we're using encrypted or plaintext prefs
+    private var isUsingSecurePrefs = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,9 +71,9 @@ class MainActivity : ComponentActivity() {
                 masterKey,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
+            ).also { isUsingSecurePrefs = true }
         } catch (e: Throwable) {
-            // Fallback: standard prefs on devices where Keystore is unavailable (API 21-22)
+            isUsingSecurePrefs = false
             getSharedPreferences("vibecoder_prefs", Context.MODE_PRIVATE)
         }
 
@@ -157,7 +159,9 @@ class MainActivity : ComponentActivity() {
                         putString("ssh_host", newConfig.host)
                         putInt("ssh_port", newConfig.port)
                         putString("ssh_user", newConfig.user)
-                        putString("ssh_pass", newConfig.passwordKey)
+                        // S-4 FIX: Only persist SSH password if using encrypted prefs
+                        // On insecure fallback prefs, skip saving the password to avoid plaintext storage
+                        if (isUsingSecurePrefs) putString("ssh_pass", newConfig.passwordKey)
                         putString("ssh_workspace", newConfig.workspacePath)
                     }.apply()
                 }

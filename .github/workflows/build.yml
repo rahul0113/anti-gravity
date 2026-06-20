@@ -46,11 +46,9 @@ jobs:
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
-
-    - name: Generate Gradle wrapper
-      run: |
-        gradle wrapper --gradle-version 8.5
-        chmod +x gradlew
+      # O-4 FIX: Removed 'gradle wrapper --gradle-version 8.5' step
+      # That step regenerated gradle-wrapper.properties on every run, busting the Gradle cache.
+      # The wrapper is now committed to the repo and reused directly.
 
     - name: Build Debug APK
       run: ./gradlew assembleDebug --stacktrace

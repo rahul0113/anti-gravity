@@ -33,9 +33,9 @@ fun TerminalView(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
-    // BUG-3 FIX: Smart auto-scroll — only scrolls to bottom when user is already near it
-    // This prevents violently yanking the user back when they scroll up to read past output
-    LaunchedEffect(messages.size) {
+    // B-3 FIX: Use messages.lastOrNull() as key — correctly detects clear+add (same size) events
+    // O-8 FIX: Also only auto-scroll when user is near the bottom
+    LaunchedEffect(messages.lastOrNull()) {
         if (messages.isNotEmpty()) {
             val layoutInfo = listState.layoutInfo
             val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
@@ -117,7 +117,8 @@ fun TerminalView(
                     )
                 }
             } else {
-                items(messages) { message ->
+                // O-8 FIX: Stable key prevents full-list recompose when a message is added
+                items(messages, key = { it.id }) { message ->
                     TerminalMessageItem(message)
                 }
             }
