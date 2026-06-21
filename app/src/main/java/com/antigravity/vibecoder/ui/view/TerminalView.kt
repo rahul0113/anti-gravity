@@ -214,7 +214,7 @@ fun TerminalView(
 }
 
 @Composable
-fun TerminalMessageItem(message: ChatMessage) {
+fun ChatMessageItem(message: ChatMessage) {
     val isUser = message.type == MessageType.USER
     val isToolCall = message.type == MessageType.TOOL_CALL
     
