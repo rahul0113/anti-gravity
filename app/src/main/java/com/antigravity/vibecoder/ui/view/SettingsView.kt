@@ -42,7 +42,7 @@ fun SettingsView(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(DarkBackground)
+            .background(Color.Transparent)
             .padding(16.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -56,14 +56,14 @@ fun SettingsView(
 
         // API Section
         Card(
-            modifier = Modifier.fillMaxWidth().border(1.dp, DarkBorder, RoundedCornerShape(8.dp)),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface)
+            modifier = Modifier.fillMaxWidth().glassPanel(shape = RoundedCornerShape(16.dp), alpha = 0.05f),
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent)
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("--- OPENCODE ZEN API CONFIG ---", color = TerminalCyan, fontWeight = FontWeight.Bold)
+                Text("--- OPENCODE ZEN API CONFIG ---", color = Color.White.copy(alpha=0.7f), fontWeight = FontWeight.Bold, fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif)
 
                 OutlinedTextField(
                     value = apiKey,
@@ -128,10 +128,11 @@ fun SettingsView(
                         modifier = Modifier.fillMaxWidth().menuAnchor(),
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = TerminalGreen,
-                            unfocusedBorderColor = DarkBorder,
-                            focusedTextColor = TerminalWhite,
-                            unfocusedTextColor = TerminalWhite
+                            focusedBorderColor = Color.White.copy(alpha=0.5f),
+                            unfocusedBorderColor = Color.White.copy(alpha=0.2f),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            cursorColor = Color.White
                         )
                     )
                     
@@ -158,16 +159,16 @@ fun SettingsView(
 
         // Connection Section
         Card(
-            modifier = Modifier.fillMaxWidth().border(1.dp, DarkBorder, RoundedCornerShape(8.dp)),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface)
+            modifier = Modifier.fillMaxWidth().glassPanel(shape = RoundedCornerShape(16.dp), alpha = 0.05f),
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent)
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("--- ENVIRONMENT RUNTIME ---", color = TerminalCyan, fontWeight = FontWeight.Bold)
+                Text("--- ENVIRONMENT RUNTIME ---", color = Color.White.copy(alpha=0.7f), fontWeight = FontWeight.Bold, fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif)
 
-                Text("Select Execution Mode:", color = TerminalWhite, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text("Select Execution Mode:", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     // Sandbox Option
@@ -282,10 +283,11 @@ fun SettingsView(
                     label = { Text("Workspace Path Directory", color = TerminalGray) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = TerminalGreen,
-                        unfocusedBorderColor = DarkBorder,
-                        focusedTextColor = TerminalWhite,
-                        unfocusedTextColor = TerminalWhite
+                        focusedBorderColor = Color.White.copy(alpha=0.5f),
+                        unfocusedBorderColor = Color.White.copy(alpha=0.2f),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        cursorColor = Color.White
                     )
                 )
                 

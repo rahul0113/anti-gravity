@@ -135,14 +135,15 @@ fun EditorView(
         }
     }
 
-    Row(modifier = modifier.fillMaxSize().background(DarkBackground)) {
+    Row(modifier = modifier.fillMaxSize().background(Color.Transparent).padding(4.dp)) {
         // File Explorer Sidebar
         if (isExplorerExpanded) {
             Column(
                 modifier = Modifier
                     .weight(0.35f)
                     .fillMaxHeight()
-                    .border(1.dp, DarkBorder)
+                    .padding(end = 4.dp)
+                    .glassPanel(shape = RoundedCornerShape(12.dp), alpha = 0.05f)
                     .padding(8.dp)
             ) {
                 Row(
@@ -219,9 +220,10 @@ fun EditorView(
             modifier = Modifier
                 .weight(if (isExplorerExpanded) 0.55f else 0.90f)
                 .fillMaxHeight()
+                .padding(end = 4.dp)
         ) {
             // Toolbar & Tabs
-            Column(modifier = Modifier.fillMaxWidth().background(DarkSurface).border(1.dp, DarkBorder)) {
+            Column(modifier = Modifier.fillMaxWidth().glassPanel(shape = RoundedCornerShape(12.dp), alpha = 0.08f)) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -284,14 +286,14 @@ fun EditorView(
                 // Tabs Row
                 if (openFiles.isNotEmpty()) {
                     androidx.compose.foundation.lazy.LazyRow(
-                        modifier = Modifier.fillMaxWidth().background(Color(0xFF1E1E1E)),
+                        modifier = Modifier.fillMaxWidth().background(Color.Transparent),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         items(openFiles) { file ->
                             val isSelected = currentFile?.path == file.path
                             Row(
                                 modifier = Modifier
-                                    .background(if (isSelected) DarkSurface else Color.Transparent)
+                                    .background(if (isSelected) Color.White.copy(alpha=0.1f) else Color.Transparent)
                                     .clickable { currentFile = file }
                                     .padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -310,7 +312,7 @@ fun EditorView(
                                     }
                                 )
                             }
-                            Box(modifier = Modifier.width(1.dp).height(16.dp).background(DarkBorder))
+                            Box(modifier = Modifier.width(1.dp).height(16.dp).background(Color.White.copy(alpha=0.1f)))
                         }
                     }
                 }
@@ -340,7 +342,7 @@ fun EditorView(
                             fontFamily = FontFamily.Monospace,
                             lineHeight = 18.sp,
                             modifier = Modifier
-                                .background(DarkSurface)
+                                .background(Color.Transparent)
                                 .padding(horizontal = 8.dp, vertical = 8.dp)
                         )
 
@@ -370,14 +372,14 @@ fun EditorView(
                 modifier = Modifier
                     .weight(if (currentFile == null) 1f else 0.3f)
                     .fillMaxWidth()
-                    .background(DarkBackground)
-                    .border(1.dp, DarkBorder)
+                    .padding(top = 4.dp)
+                    .glassPanel(shape = RoundedCornerShape(12.dp), alpha = 0.05f)
             ) {
                 // Terminal Header
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(DarkSurface)
+                        .background(Color.Transparent)
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -420,8 +422,7 @@ fun EditorView(
             modifier = Modifier
                 .weight(0.10f)
                 .fillMaxHeight()
-                .background(DarkSurface)
-                .border(1.dp, DarkBorder)
+                .glassPanel(shape = RoundedCornerShape(12.dp), alpha = 0.05f)
                 .padding(4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -479,17 +480,17 @@ fun EditorView(
                             }
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = TerminalGreenDim.copy(alpha = 0.1f)),
-                    shape = RoundedCornerShape(4.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha=0.05f)),
+                    shape = RoundedCornerShape(8.dp),
                     contentPadding = PaddingValues(2.dp),
-                    modifier = Modifier.fillMaxWidth().weight(1f).border(1.dp, TerminalGreenDim.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                    modifier = Modifier.fillMaxWidth().weight(1f).padding(vertical = 2.dp).border(1.dp, Color.White.copy(alpha=0.1f), RoundedCornerShape(8.dp))
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                         if (icon != null) {
-                            Icon(icon, contentDescription = label, tint = TerminalGreen, modifier = Modifier.size(18.dp))
+                            Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.height(2.dp))
                         }
-                        Text(label, color = TerminalGreen, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, maxLines = 1)
+                        Text(label, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, maxLines = 1)
                     }
                 }
             }
@@ -549,8 +550,7 @@ fun TerminalMessageItem(message: ChatMessage) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 8.dp, top = 4.dp)
-                    .background(DarkSurface)
-                    .border(1.dp, DarkBorder, RoundedCornerShape(4.dp))
+                    .glassPanel(shape = RoundedCornerShape(8.dp), alpha = 0.05f)
                     .padding(8.dp)
             ) {
                 // Truncate massive strings to prevent Compose Text layout OOM / height crashes

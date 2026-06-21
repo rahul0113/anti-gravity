@@ -60,7 +60,7 @@ fun TerminalView(
         }
     }
 
-    Column(modifier = modifier.fillMaxSize().background(Color.Black)) {
+    Column(modifier = modifier.fillMaxSize().background(Color.Transparent)) {
         
         // ChatGPT-like Top Bar
         Row(
@@ -69,16 +69,16 @@ fun TerminalView(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onOpenDrawer, modifier = Modifier.size(36.dp).background(DarkSurface, RoundedCornerShape(18.dp))) {
-                Icon(Icons.Default.Menu, contentDescription = "Menu", tint = TerminalWhite, modifier = Modifier.size(20.dp))
+            IconButton(onClick = onOpenDrawer, modifier = Modifier.size(36.dp).glassButton()) {
+                Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White, modifier = Modifier.size(20.dp))
             }
             Spacer(modifier = Modifier.width(16.dp))
             Box(
                 modifier = Modifier
-                    .background(DarkSurface, RoundedCornerShape(20.dp))
+                    .glassButton()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                Text("✦ AntiGravity Plus", color = TerminalWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("✦ AntiGravity Plus", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
 
@@ -135,12 +135,12 @@ fun TerminalView(
             }
         }
 
-        // ChatGPT-like Modern Input Box
+        // ChatGPT-like Modern Input Box - Liquid Glass
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(12.dp)
-                .background(DarkSurface, shape = RoundedCornerShape(24.dp))
+                .glassPanel(shape = RoundedCornerShape(24.dp), alpha = 0.05f)
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -198,12 +198,12 @@ fun TerminalView(
                     enabled = !isProcessing && inputText.trim().isNotEmpty(),
                     modifier = Modifier
                         .size(36.dp)
-                        .background(TerminalWhite, RoundedCornerShape(18.dp))
+                        .background(Color.White.copy(alpha=0.2f), RoundedCornerShape(18.dp))
                 ) {
                     Icon(
                         imageVector = Icons.Default.Send,
                         contentDescription = "Send",
-                        tint = Color.Black,
+                        tint = Color.White,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -214,7 +214,7 @@ fun TerminalView(
 }
 
 @Composable
-fun ChatMessageItem(message: ChatMessage) {
+fun TerminalMessageItem(message: ChatMessage) {
     val isUser = message.type == MessageType.USER
     val isToolCall = message.type == MessageType.TOOL_CALL
     
@@ -225,10 +225,10 @@ fun ChatMessageItem(message: ChatMessage) {
         ) {
             Text(
                 text = "⚡ Running: ${message.text.take(50).replace("\n", " ")}...",
-                color = TerminalGray,
+                color = Color.White.copy(alpha=0.7f),
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
-                modifier = Modifier.background(DarkSurface, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp)
+                modifier = Modifier.glassPanel(shape = RoundedCornerShape(8.dp), alpha = 0.1f).padding(horizontal = 8.dp, vertical = 4.dp)
             )
         }
         return
@@ -242,11 +242,10 @@ fun ChatMessageItem(message: ChatMessage) {
             Box(
                 modifier = Modifier
                     .size(32.dp)
-                    .background(TerminalGreen.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
-                    .border(1.dp, TerminalGreen, RoundedCornerShape(16.dp)),
+                    .glassPanel(shape = RoundedCornerShape(16.dp), alpha = 0.2f),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.SmartToy, contentDescription = "AI", tint = TerminalGreen, modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.SmartToy, contentDescription = "AI", tint = Color.White, modifier = Modifier.size(20.dp))
             }
             Spacer(Modifier.width(8.dp))
         }
@@ -254,20 +253,21 @@ fun ChatMessageItem(message: ChatMessage) {
         Box(
             modifier = Modifier
                 .weight(1f, fill = false)
-                .background(
-                    if (isUser) DarkSurface else Color.Transparent,
-                    RoundedCornerShape(
+                .glassPanel(
+                    shape = RoundedCornerShape(
                         topStart = 16.dp, 
                         topEnd = 16.dp, 
                         bottomStart = if (isUser) 16.dp else 0.dp, 
                         bottomEnd = if (isUser) 0.dp else 16.dp
-                    )
+                    ),
+                    alpha = if (isUser) 0.15f else 0.05f
                 )
-                .padding(if (isUser) 12.dp else 4.dp)
+                .padding(12.dp)
         ) {
+            val safeText = if (message.text.length > 15000) message.text.take(15000) + "\n...[OUTPUT TRUNCATED]" else message.text
             Text(
-                text = message.text,
-                color = TerminalWhite,
+                text = safeText,
+                color = Color.White,
                 fontSize = 15.sp,
                 fontFamily = FontFamily.SansSerif,
                 lineHeight = 22.sp
@@ -279,11 +279,10 @@ fun ChatMessageItem(message: ChatMessage) {
             Box(
                 modifier = Modifier
                     .size(32.dp)
-                    .background(DarkSurface, RoundedCornerShape(16.dp))
-                    .border(1.dp, DarkBorder, RoundedCornerShape(16.dp)),
+                    .glassPanel(shape = RoundedCornerShape(16.dp), alpha = 0.15f),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.Person, contentDescription = "User", tint = TerminalGray, modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.Person, contentDescription = "User", tint = Color.White, modifier = Modifier.size(20.dp))
             }
         }
     }

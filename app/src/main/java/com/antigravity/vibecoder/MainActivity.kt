@@ -50,6 +50,8 @@ import com.antigravity.vibecoder.ui.theme.DarkBorder
 import com.antigravity.vibecoder.ui.theme.DarkSurface
 import com.antigravity.vibecoder.ui.theme.TerminalGreen
 import com.antigravity.vibecoder.ui.theme.TerminalGray
+import com.antigravity.vibecoder.ui.theme.glassPanel
+import com.antigravity.vibecoder.ui.theme.liquidBackground
 import com.antigravity.vibecoder.ui.view.EditorView
 import com.antigravity.vibecoder.ui.view.PreviewView
 import com.antigravity.vibecoder.ui.view.SettingsView
@@ -213,11 +215,17 @@ class MainActivity : ComponentActivity() {
                     drawerState = drawerState,
                     drawerContent = {
                         ModalDrawerSheet(
-                            drawerContainerColor = DarkBackground,
+                            drawerContainerColor = Color.Transparent, // Will be transparent to show glass
                             drawerContentColor = TerminalWhite,
                             modifier = Modifier.width(300.dp)
                         ) {
-                            Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 24.dp)) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Transparent)
+                                    .glassPanel(shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp), alpha = 0.05f)
+                                    .padding(horizontal = 16.dp, vertical = 24.dp)
+                            ) {
                                 // Header
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
@@ -319,7 +327,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     ) { innerPadding ->
-                    Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                    Box(modifier = Modifier.fillMaxSize().padding(innerPadding).liquidBackground()) {
                         when (currentScreen) {
                             Screen.TERMINAL -> TerminalView(
                                 messages = messages,
