@@ -57,10 +57,9 @@ fun EditorView(
     var fileList by remember { mutableStateOf<List<WorkspaceFile>>(emptyList()) }
 
     // B-6 FIX: rememberSaveable preserves editor state across recompositions and config changes
-    var currentFilePath by rememberSaveable { mutableStateOf<String?>(null) }
-    var currentFileName by rememberSaveable { mutableStateOf("No File Selected") }
-    var fileContent by rememberSaveable { mutableStateOf("") }
-
+    var openFiles by rememberSaveable { mutableStateOf<List<WorkspaceFile>>(emptyList()) }
+    var currentFile by rememberSaveable { mutableStateOf<WorkspaceFile?>(null) }
+    var fileContents by rememberSaveable { mutableStateOf<Map<String, String>>(emptyMap()) }
     var isSaving by remember { mutableStateOf(false) }
     var isExplorerExpanded by remember { mutableStateOf(true) }
 
@@ -163,27 +162,32 @@ fun EditorView(
                                 .fillMaxWidth()
                                 .clickable {
                                     if (!wFile.isDirectory) {
-                                        currentFilePath = wFile.path
-                                        currentFileName = wFile.name
-                                        coroutineScope.launch {
-                                            fileContent = when (config.executionMode) {
-                                                ExecutionMode.TERMUX_SERVICE -> {
-                                                    // V-1 FIX: Termux intents crash if payload is > ~1MB. Restrict to 250KB.
-                                                    if (wFile.size > 250_000) {
-                                                        "// ERROR: File is too large (${wFile.size / 1024} KB).\n// Termux IPC intent transactions are limited to ~250KB.\n// Please switch to SSH mode to safely edit large files."
-                                                    } else {
-                                                        val res = TermuxRunner.executeCommand(
-                                                            context, "cat -- ${wFile.path.shellSingleQuote()}", config.workspacePath
-                                                        )
-                                                        if (res.error == null) res.stdout else "Error: ${res.error}"
+                                        if (!openFiles.contains(wFile)) {
+                                            openFiles = openFiles + wFile
+                                        }
+                                        currentFile = wFile
+                                        
+                                        if (!fileContents.containsKey(wFile.path)) {
+                                            coroutineScope.launch {
+                                                val content = when (config.executionMode) {
+                                                    ExecutionMode.TERMUX_SERVICE -> {
+                                                        if (wFile.size > 250_000) {
+                                                            "// ERROR: File is too large (${wFile.size / 1024} KB).\n// Termux IPC intent transactions are limited to ~250KB."
+                                                        } else {
+                                                            val res = TermuxRunner.executeCommand(
+                                                                context, "cat -- ${wFile.path.shellSingleQuote()}", config.workspacePath
+                                                            )
+                                                            if (res.error == null) res.stdout else "Error: ${res.error}"
+                                                        }
                                                     }
+                                                    ExecutionMode.SSH -> SshConnection.readFile(config, wFile.path)
+                                                    ExecutionMode.SANDBOX -> try {
+                                                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                                            File(wFile.path).readText()
+                                                        }
+                                                    } catch (e: Exception) { "Failed to read: ${e.message}" }
                                                 }
-                                                ExecutionMode.SSH -> SshConnection.readFile(config, wFile.path)
-                                                ExecutionMode.SANDBOX -> try {
-                                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                                        File(wFile.path).readText()
-                                                    }
-                                                } catch (e: Exception) { "Failed to read: ${e.message}" }
+                                                fileContents = fileContents + (wFile.path to content)
                                             }
                                         }
                                     }
@@ -200,7 +204,7 @@ fun EditorView(
                             Spacer(Modifier.width(6.dp))
                             Text(
                                 text = wFile.name,
-                                color = if (currentFilePath == wFile.path) TerminalGreen else TerminalWhite,
+                                color = if (currentFile?.path == wFile.path) TerminalGreen else TerminalWhite,
                                 fontSize = 12.sp,
                                 maxLines = 1
                             )
@@ -216,70 +220,104 @@ fun EditorView(
                 .weight(if (isExplorerExpanded) 0.55f else 0.90f)
                 .fillMaxHeight()
         ) {
-            // Toolbar
-            Row(
-                modifier = Modifier.fillMaxWidth().background(DarkSurface).border(1.dp, DarkBorder).padding(8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { isExplorerExpanded = !isExplorerExpanded }, modifier = Modifier.size(24.dp)) {
-                        Icon(
-                            imageVector = if (isExplorerExpanded) Icons.Default.MenuOpen else Icons.Default.Menu,
-                            contentDescription = "Toggle Sidebar", tint = TerminalGreen, modifier = Modifier.size(18.dp)
-                        )
+            // Toolbar & Tabs
+            Column(modifier = Modifier.fillMaxWidth().background(DarkSurface).border(1.dp, DarkBorder)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { isExplorerExpanded = !isExplorerExpanded }, modifier = Modifier.size(24.dp)) {
+                            Icon(
+                                imageVector = if (isExplorerExpanded) Icons.Default.MenuOpen else Icons.Default.Menu,
+                                contentDescription = "Toggle Sidebar", tint = TerminalGreen, modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
-                    Spacer(Modifier.width(8.dp))
-                    Text("> $currentFileName", color = TerminalCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                }
-                if (currentFilePath != null) {
-                    Button(
-                        onClick = {
-                            val path = currentFilePath ?: return@Button
-                            isSaving = true
-                            coroutineScope.launch {
-                                val success = when (config.executionMode) {
-                                    ExecutionMode.TERMUX_SERVICE -> {
-                                        // V-1 FIX: Prevent intent transaction crash on save
-                                        if (fileContent.length > 250_000) {
-                                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                                android.widget.Toast.makeText(context, "File too large (>250KB) for Termux IPC. Use SSH mode.", android.widget.Toast.LENGTH_LONG).show()
+                    if (currentFile != null) {
+                        Button(
+                            onClick = {
+                                val path = currentFile?.path ?: return@Button
+                                val content = fileContents[path] ?: return@Button
+                                isSaving = true
+                                coroutineScope.launch {
+                                    val success = when (config.executionMode) {
+                                        ExecutionMode.TERMUX_SERVICE -> {
+                                            if (content.length > 250_000) {
+                                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                                    android.widget.Toast.makeText(context, "File too large (>250KB) for Termux IPC. Use SSH mode.", android.widget.Toast.LENGTH_LONG).show()
+                                                }
+                                                false
+                                            } else {
+                                                val b64 = android.util.Base64.encodeToString(
+                                                    content.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP
+                                                )
+                                                val qPath = path.shellSingleQuote()
+                                                val cmd = "mkdir -p \$(dirname $qPath) && printf '%s' '$b64' | base64 -d > $qPath"
+                                                val res = TermuxRunner.executeCommand(context, cmd, config.workspacePath)
+                                                res.error == null && res.exitCode == 0
                                             }
-                                            false
-                                        } else {
-                                            val b64 = android.util.Base64.encodeToString(
-                                                fileContent.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP
-                                            )
-                                            val qPath = path.shellSingleQuote()
-                                            val cmd = "mkdir -p \$(dirname $qPath) && printf '%s' '$b64' | base64 -d > $qPath"
-                                            val res = TermuxRunner.executeCommand(context, cmd, config.workspacePath)
-                                            res.error == null && res.exitCode == 0
+                                        }
+                                        ExecutionMode.SSH -> SshConnection.writeFile(config, path, content)
+                                        ExecutionMode.SANDBOX -> try { 
+                                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                                File(path).writeText(content)
+                                            }
+                                            true 
+                                        } catch (e: Exception) { false }
+                                    }
+                                    isSaving = false
+                                    if (success) reloadFiles()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = TerminalGreenDim),
+                            shape = RoundedCornerShape(4.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Text(if (isSaving) "SAVING..." else "SAVE", color = DarkBackground, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                
+                // Tabs Row
+                if (openFiles.isNotEmpty()) {
+                    androidx.compose.foundation.lazy.LazyRow(
+                        modifier = Modifier.fillMaxWidth().background(Color(0xFF1E1E1E)),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        items(openFiles) { file ->
+                            val isSelected = currentFile?.path == file.path
+                            Row(
+                                modifier = Modifier
+                                    .background(if (isSelected) DarkSurface else Color.Transparent)
+                                    .clickable { currentFile = file }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(file.name, color = if (isSelected) TerminalWhite else TerminalGray, fontSize = 12.sp)
+                                Spacer(Modifier.width(8.dp))
+                                Icon(
+                                    Icons.Default.Close, 
+                                    contentDescription = "Close Tab", 
+                                    tint = TerminalGray, 
+                                    modifier = Modifier.size(14.dp).clickable {
+                                        openFiles = openFiles.filter { it.path != file.path }
+                                        if (currentFile?.path == file.path) {
+                                            currentFile = openFiles.lastOrNull()
                                         }
                                     }
-                                    ExecutionMode.SSH -> SshConnection.writeFile(config, path, fileContent)
-                                    ExecutionMode.SANDBOX -> try { 
-                                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                            File(path).writeText(fileContent)
-                                        }
-                                        true 
-                                    } catch (e: Exception) { false }
-                                }
-                                isSaving = false
-                                if (success) reloadFiles()
+                                )
                             }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = TerminalGreenDim),
-                        shape = RoundedCornerShape(4.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier.height(28.dp)
-                    ) {
-                        Text(if (isSaving) "SAVING..." else "SAVE", color = DarkBackground, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Box(modifier = Modifier.width(1.dp).height(16.dp).background(DarkBorder))
+                        }
                     }
                 }
             }
 
-            if (currentFilePath == null) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (currentFile == null) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Text("SELECT A FILE TO VIBE EDIT", color = TerminalGray, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
                 }
             } else {
@@ -291,9 +329,8 @@ fun EditorView(
                         .verticalScroll(editorScrollState)
                 ) {
                     Row(modifier = Modifier.fillMaxWidth()) {
-                        // Line numbers — P-1 FIX: Avoid string allocation (fileContent.lines().size creates thousands of objects)
-                        // Using count { it == '\n' } is O(N) but zero allocation.
-                        val lineCount = remember(fileContent) { minOf(fileContent.count { it == '\n' } + 1, 9999) }
+                        val content = fileContents[currentFile?.path] ?: ""
+                        val lineCount = remember(content) { minOf(content.count { it == '\n' } + 1, 9999) }
                         val lineNumbers = remember(lineCount) { (1..lineCount).joinToString("\n") }
 
                         Text(
@@ -307,10 +344,13 @@ fun EditorView(
                                 .padding(horizontal = 8.dp, vertical = 8.dp)
                         )
 
-                        // C-1 FIX: BasicTextField has no internal scroll — the parent Box scrolls it
                         BasicTextField(
-                            value = fileContent,
-                            onValueChange = { fileContent = it },
+                            value = content,
+                            onValueChange = { newText ->
+                                currentFile?.let { f ->
+                                    fileContents = fileContents + (f.path to newText)
+                                }
+                            },
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(horizontal = 8.dp, vertical = 8.dp),
@@ -328,7 +368,7 @@ fun EditorView(
             // Raw Terminal Output (Bottom part)
             Column(
                 modifier = Modifier
-                    .weight(if (currentFilePath == null) 1f else 0.3f)
+                    .weight(if (currentFile == null) 1f else 0.3f)
                     .fillMaxWidth()
                     .background(DarkBackground)
                     .border(1.dp, DarkBorder)
@@ -405,9 +445,26 @@ fun EditorView(
                                 }
                                 try { speechLauncher.launch(intent) } catch (e: Exception) { }
                             }
-                            "COPY" -> clipboardManager.setText(AnnotatedString(fileContent))
-                            "PASTE" -> { val t = clipboardManager.getText()?.text; if (t != null) fileContent += t }
-                            "ENTER" -> fileContent += "\n"
+                            "COPY" -> {
+                                currentFile?.let { f -> 
+                                    clipboardManager.setText(AnnotatedString(fileContents[f.path] ?: ""))
+                                }
+                            }
+                            "PASTE" -> { 
+                                val t = clipboardManager.getText()?.text
+                                if (t != null) {
+                                    currentFile?.let { f ->
+                                        val old = fileContents[f.path] ?: ""
+                                        fileContents = fileContents + (f.path to old + t)
+                                    }
+                                }
+                            }
+                            "ENTER" -> {
+                                currentFile?.let { f ->
+                                    val old = fileContents[f.path] ?: ""
+                                    fileContents = fileContents + (f.path to old + "\n")
+                                }
+                            }
                             "CTRL" -> { 
                                 // Send SIGINT equivalent by killing running opencode/bash processes
                                 if (config.executionMode == ExecutionMode.TERMUX_SERVICE) {
@@ -418,9 +475,7 @@ fun EditorView(
                             }
                             "ESC" -> { 
                                 // Escape the editor view by clearing the current file selection
-                                currentFilePath = null
-                                currentFileName = "No File Selected"
-                                fileContent = ""
+                                currentFile = null
                             }
                         }
                     },
