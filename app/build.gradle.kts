@@ -75,7 +75,10 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.github.mwiede:jsch:0.2.17")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
-    implementation("com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava")
+    // FIX: Replace empty guava stub with real concurrent-futures.
+    // The empty stub was blocking AbstractResolvableFuture, causing
+    // NoClassDefFoundError in profileinstaller on every launch.
+    implementation("androidx.concurrent:concurrent-futures:1.1.0")
 
     // Testing — plain JVM unit tests (no Robolectric, no Compose UI test runtime needed)
     testImplementation("junit:junit:4.13.2")
