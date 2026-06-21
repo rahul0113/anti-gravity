@@ -22,6 +22,12 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.clickable
+import android.annotation.SuppressLint
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.antigravity.vibecoder.model.ConnectionConfig
 import com.antigravity.vibecoder.model.ExecutionMode
 import com.antigravity.vibecoder.ui.theme.*
@@ -39,6 +45,71 @@ fun SettingsView(
 ) {
     var isApiKeyVisible by remember { mutableStateOf(false) }
     var isSshPasswordVisible by remember { mutableStateOf(false) }
+    var showLoginWebView by remember { mutableStateOf(false) }
+
+    if (showLoginWebView) {
+        Dialog(
+            onDismissRequest = { showLoginWebView = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().background(DarkSurface).padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Open Code Zen Login", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("Close", color = Color(0xFFE56A30), modifier = Modifier.clickable { showLoginWebView = false }, fontWeight = FontWeight.Bold)
+                    }
+                    
+                    @SuppressLint("SetJavaScriptEnabled")
+                    class JSBridge {
+                        @JavascriptInterface
+                        fun onApiKeyFound(key: String) {
+                            // This might be called from a background thread
+                            onApiKeyChange(key)
+                            showLoginWebView = false
+                        }
+                    }
+
+                    androidx.compose.ui.viewinterop.AndroidView(
+                        factory = { ctx ->
+                            WebView(ctx).apply {
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                addJavascriptInterface(JSBridge(), "AndroidInterface")
+                                
+                                webViewClient = object : WebViewClient() {
+                                    override fun onPageFinished(view: WebView?, url: String?) {
+                                        super.onPageFinished(view, url)
+                                        val js = """
+                                            setInterval(function() {
+                                                var text = document.body.innerText;
+                                                var match = text.match(/AQ\.[A-Za-z0-9_-]{30,}/);
+                                                if (match) {
+                                                    AndroidInterface.onApiKeyFound(match[0]);
+                                                }
+                                                var inputs = document.querySelectorAll('input');
+                                                for(var i=0; i<inputs.length; i++) {
+                                                    if(inputs[i].value && inputs[i].value.startsWith('AQ.')) {
+                                                        AndroidInterface.onApiKeyFound(inputs[i].value);
+                                                    }
+                                                }
+                                            }, 1000);
+                                        """.trimIndent()
+                                        view?.evaluateJavascript(js, null)
+                                    }
+                                }
+                                loadUrl("https://opencode.ai/login")
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -88,6 +159,15 @@ fun SettingsView(
                         unfocusedTextColor = TerminalWhite
                     )
                 )
+
+                Button(
+                    onClick = { showLoginWebView = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE56A30)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) {
+                    Text("Auto-Login with Open Code Zen", color = Color.White, fontWeight = FontWeight.Bold)
+                }
 
                 OutlinedTextField(
                     value = baseUrl,
