@@ -11,14 +11,20 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.TextRange
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,7 +65,9 @@ fun EditorView(
     // B-6 FIX: rememberSaveable preserves editor state across recompositions and config changes
     var openFiles by rememberSaveable { mutableStateOf<List<WorkspaceFile>>(emptyList()) }
     var currentFile by rememberSaveable { mutableStateOf<WorkspaceFile?>(null) }
-    var fileContents by rememberSaveable { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var fileContents by remember { mutableStateOf<Map<String, TextFieldValue>>(emptyMap()) }
+    var localTerminalLogs by remember { mutableStateOf<List<String>>(emptyList()) }
+    var terminalInput by remember { mutableStateOf("") }
     var isSaving by remember { mutableStateOf(false) }
     var isExplorerExpanded by remember { mutableStateOf(true) }
 
@@ -188,7 +196,7 @@ fun EditorView(
                                                         }
                                                     } catch (e: Exception) { "Failed to read: ${e.message}" }
                                                 }
-                                                fileContents = fileContents + (wFile.path to content)
+                                                fileContents = fileContents + (wFile.path to TextFieldValue(content))
                                             }
                                         }
                                     }
@@ -241,7 +249,7 @@ fun EditorView(
                         Button(
                             onClick = {
                                 val path = currentFile?.path ?: return@Button
-                                val content = fileContents[path] ?: return@Button
+                                val content = fileContents[path]?.text ?: return@Button
                                 isSaving = true
                                 coroutineScope.launch {
                                     val success = when (config.executionMode) {
@@ -331,7 +339,7 @@ fun EditorView(
                         .verticalScroll(editorScrollState)
                 ) {
                     Row(modifier = Modifier.fillMaxWidth()) {
-                        val content = fileContents[currentFile?.path] ?: ""
+                        val content = fileContents[currentFile?.path]?.text ?: ""
                         val lineCount = remember(content) { minOf(content.count { it == '\n' } + 1, 9999) }
                         val lineNumbers = remember(lineCount) { (1..lineCount).joinToString("\n") }
 
@@ -347,7 +355,7 @@ fun EditorView(
                         )
 
                         BasicTextField(
-                            value = content,
+                            value = fileContents[currentFile?.path] ?: TextFieldValue(""),
                             onValueChange = { newText ->
                                 currentFile?.let { f ->
                                     fileContents = fileContents + (f.path to newText)
@@ -402,17 +410,54 @@ fun EditorView(
                 // Terminal Logs
                 LazyColumn(
                     state = terminalListState,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    if (messages.isEmpty()) {
+                    if (messages.isEmpty() && localTerminalLogs.isEmpty()) {
                         item { Text("--- RAW TERMINAL OUTPUT ---", color = TerminalGray, fontSize = 10.sp, fontFamily = FontFamily.Monospace) }
                     } else {
                         items(messages, key = { it.id }) { message ->
-                            // Use the old TerminalMessageItem that renders raw text
                             TerminalMessageItem(message)
                         }
+                        items(localTerminalLogs) { log ->
+                            Text(log, color = TerminalWhite, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                        }
                     }
+                }
+                
+                // Native Termux Input Bar
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha=0.2f)).padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("termux@android:~\$ ", color = TerminalGreen, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                    BasicTextField(
+                        value = terminalInput,
+                        onValueChange = { terminalInput = it },
+                        modifier = Modifier.weight(1f).padding(start = 4.dp),
+                        textStyle = LocalTextStyle.current.copy(color = TerminalWhite, fontSize = 12.sp, fontFamily = FontFamily.Monospace),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(
+                            onSend = { 
+                                if (terminalInput.isNotBlank()) {
+                                    val cmd = terminalInput
+                                    terminalInput = ""
+                                    localTerminalLogs = localTerminalLogs + ("\ntermux@android:~\$ $cmd")
+                                    coroutineScope.launch {
+                                        val res = TermuxRunner.executeCommand(context, cmd, config.workspacePath)
+                                        if (res.error != null) {
+                                            localTerminalLogs = localTerminalLogs + res.error
+                                        } else {
+                                            if (res.stdout.isNotEmpty()) localTerminalLogs = localTerminalLogs + res.stdout
+                                            if (res.stderr.isNotEmpty()) localTerminalLogs = localTerminalLogs + res.stderr
+                                        }
+                                        reloadFiles() // Reload files in case command modified them
+                                    }
+                                }
+                            }
+                        ),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(TerminalGreen)
+                    )
                 }
             }
         }
@@ -420,64 +465,83 @@ fun EditorView(
         // Keyboard Sidebar
         Column(
             modifier = Modifier
-                .weight(0.10f)
+                .weight(0.12f)
                 .fillMaxHeight()
                 .glassPanel(shape = RoundedCornerShape(12.dp), alpha = 0.05f)
-                .padding(4.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+                .padding(2.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             val keyboardButtons = listOf(
-                "COPY" to Icons.Default.ContentCopy,
-                "PASTE" to Icons.Default.ContentPaste,
-                "CTRL" to null,
-                "ENTER" to Icons.Default.KeyboardReturn,
                 "ESC" to null,
-                "MIC" to Icons.Default.Mic
+                "TAB" to Icons.Default.KeyboardTab,
+                "CTRL" to null,
+                "ALT" to null,
+                "SPACE" to Icons.Default.SpaceBar,
+                "UP" to Icons.Default.KeyboardArrowUp,
+                "DOWN" to Icons.Default.KeyboardArrowDown,
+                "LEFT" to Icons.Default.KeyboardArrowLeft,
+                "RIGHT" to Icons.Default.KeyboardArrowRight
             )
             keyboardButtons.forEach { (label, icon) ->
                 Button(
                     onClick = {
+                        val f = currentFile
+                        val currentVal = if (f != null) fileContents[f.path] else null
+                        
                         when (label) {
-                            "MIC" -> {
-                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your vibe code prompt...")
-                                }
-                                try { speechLauncher.launch(intent) } catch (e: Exception) { }
-                            }
-                            "COPY" -> {
-                                currentFile?.let { f -> 
-                                    clipboardManager.setText(AnnotatedString(fileContents[f.path] ?: ""))
+                            "TAB" -> {
+                                if (f != null && currentVal != null) {
+                                    val text = currentVal.text
+                                    val cursor = currentVal.selection.start
+                                    val newText = text.substring(0, cursor) + "    " + text.substring(cursor)
+                                    fileContents = fileContents + (f.path to TextFieldValue(newText, TextRange(cursor + 4)))
                                 }
                             }
-                            "PASTE" -> { 
-                                val t = clipboardManager.getText()?.text
-                                if (t != null) {
-                                    currentFile?.let { f ->
-                                        val old = fileContents[f.path] ?: ""
-                                        fileContents = fileContents + (f.path to old + t)
-                                    }
+                            "SPACE" -> {
+                                if (f != null && currentVal != null) {
+                                    val text = currentVal.text
+                                    val cursor = currentVal.selection.start
+                                    val newText = text.substring(0, cursor) + " " + text.substring(cursor)
+                                    fileContents = fileContents + (f.path to TextFieldValue(newText, TextRange(cursor + 1)))
                                 }
                             }
-                            "ENTER" -> {
-                                currentFile?.let { f ->
-                                    val old = fileContents[f.path] ?: ""
-                                    fileContents = fileContents + (f.path to old + "\n")
+                            "UP" -> {
+                                if (f != null && currentVal != null) {
+                                    val text = currentVal.text
+                                    val cursor = currentVal.selection.start
+                                    // simple up: go to previous newline
+                                    val prevNewline = text.lastIndexOf('\n', maxOf(0, cursor - 1))
+                                    fileContents = fileContents + (f.path to currentVal.copy(selection = TextRange(maxOf(0, prevNewline))))
+                                }
+                            }
+                            "DOWN" -> {
+                                if (f != null && currentVal != null) {
+                                    val text = currentVal.text
+                                    val cursor = currentVal.selection.start
+                                    val nextNewline = text.indexOf('\n', cursor)
+                                    val target = if (nextNewline == -1) text.length else nextNewline + 1
+                                    fileContents = fileContents + (f.path to currentVal.copy(selection = TextRange(target)))
+                                }
+                            }
+                            "LEFT" -> {
+                                if (f != null && currentVal != null) {
+                                    val cursor = maxOf(0, currentVal.selection.start - 1)
+                                    fileContents = fileContents + (f.path to currentVal.copy(selection = TextRange(cursor)))
+                                }
+                            }
+                            "RIGHT" -> {
+                                if (f != null && currentVal != null) {
+                                    val cursor = minOf(currentVal.text.length, currentVal.selection.end + 1)
+                                    fileContents = fileContents + (f.path to currentVal.copy(selection = TextRange(cursor)))
                                 }
                             }
                             "CTRL" -> { 
-                                // Send SIGINT equivalent by killing running opencode/bash processes
                                 if (config.executionMode == ExecutionMode.TERMUX_SERVICE) {
-                                    coroutineScope.launch {
-                                        TermuxRunner.executeCommand(context, "pkill -f opencode", config.workspacePath)
-                                    }
+                                    coroutineScope.launch { TermuxRunner.executeCommand(context, "pkill -f opencode", config.workspacePath) }
                                 }
                             }
-                            "ESC" -> { 
-                                // Escape the editor view by clearing the current file selection
-                                currentFile = null
-                            }
+                            "ESC" -> { currentFile = null }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha=0.05f)),
