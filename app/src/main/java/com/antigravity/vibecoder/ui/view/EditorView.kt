@@ -100,12 +100,16 @@ fun EditorView(
                 }
                 ExecutionMode.SSH -> SshConnection.listDirectory(config, config.workspacePath)
                 ExecutionMode.SANDBOX -> {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        localWorkspace.mkdirs()
-                        localWorkspace.listFiles()
-                            ?.map { WorkspaceFile(it.name, it.absolutePath, it.isDirectory, it.length()) }
-                            ?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
-                            ?: emptyList()
+                    try {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            localWorkspace.mkdirs()
+                            localWorkspace.listFiles()
+                                ?.map { WorkspaceFile(it.name, it.absolutePath, it.isDirectory, it.length()) }
+                                ?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+                                ?: emptyList()
+                        }
+                    } catch (e: Throwable) {
+                        emptyList()
                     }
                 }
             }

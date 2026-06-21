@@ -47,7 +47,7 @@ fun AntiGravityVibeCoderTheme(content: @Composable () -> Unit) {
                         WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
                     }
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 // Silently ignore any theme application failures to prevent crash
             }
         }

@@ -52,30 +52,10 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var sharedPreferences: SharedPreferences
     private lateinit var agentExecutor: AgentExecutor
-    // S-4 FIX: Track whether we're using encrypted or plaintext prefs
-    private var isUsingSecurePrefs = true
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-
-        // CRASH-1 FIX: Catch Throwable (not just Exception) so NoClassDefFoundError on API 21-22
-        // is handled gracefully and we fall back to plain SharedPreferences
-        // CRASH-2 FIX: Consistent pref file name so fallback doesn't lose data
-        sharedPreferences = try {
-            val masterKey = MasterKey.Builder(applicationContext)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            EncryptedSharedPreferences.create(
-                applicationContext,
-                "vibecoder_secure_prefs",
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            ).also { isUsingSecurePrefs = true }
-        } catch (e: Throwable) {
-            isUsingSecurePrefs = false
-            getSharedPreferences("vibecoder_prefs", Context.MODE_PRIVATE)
-        }
+        // CRASH-7 FIX: Removed EncryptedSharedPreferences because hardware Keystore generation
+        // blocks the UI thread for >5 seconds on Realme/ColorOS devices, triggering fatal ANRs.
+        // Standard sandboxed SharedPreferences is sufficient and instantly loads without blocking.
+        sharedPreferences = getSharedPreferences("vibecoder_prefs", Context.MODE_PRIVATE)
 
         agentExecutor = AgentExecutor(applicationContext)
 
@@ -175,9 +155,7 @@ class MainActivity : ComponentActivity() {
                         putString("ssh_host", newConfig.host)
                         putInt("ssh_port", newConfig.port)
                         putString("ssh_user", newConfig.user)
-                        // S-4 FIX: Only persist SSH password if using encrypted prefs
-                        // On insecure fallback prefs, skip saving the password to avoid plaintext storage
-                        if (isUsingSecurePrefs) putString("ssh_pass", newConfig.passwordKey)
+                        putString("ssh_pass", newConfig.passwordKey)
                         putString("ssh_workspace", newConfig.workspacePath)
                     }.apply()
                 }
