@@ -37,7 +37,6 @@ import com.antigravity.vibecoder.model.MessageType
 import com.antigravity.vibecoder.model.ConnectionConfig
 import com.antigravity.vibecoder.model.ExecutionMode
 import com.antigravity.vibecoder.model.WorkspaceFile
-import com.antigravity.vibecoder.ui.view.TerminalMessageItem
 import com.antigravity.vibecoder.ui.theme.*
 import kotlinx.coroutines.launch
 import java.io.File
@@ -438,6 +437,76 @@ fun EditorView(
                         Text(label, color = TerminalGreen, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, maxLines = 1)
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun TerminalMessageItem(message: ChatMessage) {
+    val prefixColor = when (message.type) {
+        MessageType.USER -> TerminalCyan
+        MessageType.AGENT_THOUGHT -> TerminalAmber
+        MessageType.AGENT_RESPONSE -> TerminalGreen
+        MessageType.TOOL_CALL -> TerminalCyan
+        MessageType.TOOL_OUTPUT -> TerminalGreenDim
+        MessageType.SYSTEM_INFO -> TerminalGray
+        MessageType.SYSTEM_ERROR -> TerminalRed
+    }
+
+    val prefix = when (message.type) {
+        MessageType.USER -> "user@android:~\$ "
+        MessageType.AGENT_THOUGHT -> "[AGENT_THINKING] "
+        MessageType.AGENT_RESPONSE -> "[AGENT_RESPONSE]\n"
+        MessageType.TOOL_CALL -> "[EXEC_TOOL] "
+        MessageType.TOOL_OUTPUT -> "[STDOUT]\n"
+        MessageType.SYSTEM_INFO -> "[SYS_INFO] "
+        MessageType.SYSTEM_ERROR -> "[SYS_ERROR] "
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+    ) {
+        Row {
+            Text(
+                text = prefix,
+                color = prefixColor,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            if (message.type != MessageType.AGENT_RESPONSE && message.type != MessageType.TOOL_OUTPUT) {
+                // Truncate massive strings to prevent Compose Text layout OOM / height crashes
+                val safeText = if (message.text.length > 10000) message.text.take(10000) + "\n...[OUTPUT TRUNCATED]" else message.text
+                Text(
+                    text = safeText,
+                    color = TerminalWhite,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+        
+        if (message.type == MessageType.AGENT_RESPONSE || message.type == MessageType.TOOL_OUTPUT) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 8.dp, top = 4.dp)
+                    .background(DarkSurface)
+                    .border(1.dp, DarkBorder, RoundedCornerShape(4.dp))
+                    .padding(8.dp)
+            ) {
+                // Truncate massive strings to prevent Compose Text layout OOM / height crashes
+                val safeText = if (message.text.length > 15000) message.text.take(15000) + "\n...[OUTPUT TRUNCATED]" else message.text
+                Text(
+                    text = safeText,
+                    color = if (message.type == MessageType.TOOL_OUTPUT) TerminalGreenDim else TerminalWhite,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    lineHeight = 16.sp
+                )
             }
         }
     }
