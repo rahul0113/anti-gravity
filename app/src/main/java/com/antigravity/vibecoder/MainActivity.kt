@@ -52,6 +52,9 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var sharedPreferences: SharedPreferences
     private lateinit var agentExecutor: AgentExecutor
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
         // CRASH-7 FIX: Removed EncryptedSharedPreferences because hardware Keystore generation
         // blocks the UI thread for >5 seconds on Realme/ColorOS devices, triggering fatal ANRs.
         // Standard sandboxed SharedPreferences is sufficient and instantly loads without blocking.
@@ -252,6 +255,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
     }
 
     // CRASH-4 FIX: Properly unregister BroadcastReceiver when Activity is destroyed
