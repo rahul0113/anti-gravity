@@ -39,11 +39,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    testOptions {
-        unitTests {
-            isIncludeAndroidResources = true
-        }
-    }
     kotlinOptions {
         jvmTarget = "17"
     }
@@ -75,7 +70,6 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // HTTP & SSH & JSON Integration
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
@@ -83,17 +77,11 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
     implementation("com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava")
 
-    // Testing
+    // Testing — plain JVM unit tests (no Robolectric, no Compose UI test runtime needed)
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.robolectric:robolectric:4.11.1")
-    testImplementation("androidx.test.ext:junit:1.1.5")
-    testImplementation(platform("androidx.compose:compose-bom:2024.06.00"))
-    testImplementation("androidx.compose.ui:ui-test-junit4")
     
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2023.08.00"))
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

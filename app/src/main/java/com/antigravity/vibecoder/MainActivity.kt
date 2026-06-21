@@ -28,8 +28,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import com.antigravity.vibecoder.data.AgentExecutor
 import com.antigravity.vibecoder.data.TermuxRunner
 import com.antigravity.vibecoder.model.ConnectionConfig
