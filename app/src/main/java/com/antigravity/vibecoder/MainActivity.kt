@@ -14,6 +14,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -213,6 +214,14 @@ class MainActivity : ComponentActivity() {
 
                 val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
+                BackHandler(enabled = drawerState.isOpen || currentScreen != Screen.TERMINAL) {
+                    if (drawerState.isOpen) {
+                        coroutineScope.launch { drawerState.close() }
+                    } else {
+                        currentScreen = Screen.TERMINAL
+                    }
+                }
+
                 ModalNavigationDrawer(
                     drawerState = drawerState,
                     drawerContent = {
@@ -235,9 +244,6 @@ class MainActivity : ComponentActivity() {
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text("AntiGravity", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TerminalWhite)
-                                    Box(modifier = Modifier.size(32.dp).background(DarkSurface, RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
-                                        Icon(Icons.Default.Settings, contentDescription = "Settings", modifier = Modifier.size(20.dp), tint = TerminalWhite)
-                                    }
                                 }
 
                                 // Main Menu
@@ -268,21 +274,27 @@ class MainActivity : ComponentActivity() {
                                 // Recents Header
                                 Text("Recents", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TerminalWhite.copy(alpha=0.7f), modifier = Modifier.padding(bottom = 16.dp))
                                 
-                                // Mock Recent Conversations
-                                val recentItem: @Composable (String) -> Unit = { title ->
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null, tint = TerminalWhite, modifier = Modifier.size(20.dp))
-                                        Spacer(Modifier.width(16.dp))
-                                        Text(title, fontSize = 15.sp, color = TerminalWhite)
+                                val chatSessions by agentExecutor.sessions.collectAsState()
+                                if (chatSessions.isEmpty()) {
+                                    Text("No recent chats", fontSize = 14.sp, color = TerminalGray, modifier = Modifier.padding(start = 8.dp))
+                                } else {
+                                    chatSessions.forEach { session ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth()
+                                                .clickable {
+                                                    agentExecutor.loadSession(session)
+                                                    currentScreen = Screen.TERMINAL
+                                                    coroutineScope.launch { drawerState.close() }
+                                                }
+                                                .padding(vertical = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null, tint = TerminalWhite, modifier = Modifier.size(20.dp))
+                                            Spacer(Modifier.width(16.dp))
+                                            Text(session.title, fontSize = 15.sp, color = TerminalWhite, maxLines = 1)
+                                        }
                                     }
                                 }
-                                
-                                recentItem("Running Antigravity CLI")
-                                recentItem("Android Bootstrap Guide")
-                                recentItem("Termux Setup Tips")
                                 
                                 Spacer(Modifier.weight(1f))
                                 

@@ -11,10 +11,15 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withTimeout
 import java.io.File
 
+data class ChatSession(val id: String, val title: String, val messages: List<ChatMessage>)
+
 class AgentExecutor(private val context: Context) {
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages
+
+    private val _sessions = MutableStateFlow<List<ChatSession>>(emptyList())
+    val sessions: StateFlow<List<ChatSession>> = _sessions
 
     private val _isProcessing = MutableStateFlow(false)
     val isProcessing: StateFlow<Boolean> = _isProcessing
@@ -41,7 +46,29 @@ class AgentExecutor(private val context: Context) {
     }
 
     fun clearHistory() {
+        if (_messages.value.isNotEmpty()) {
+            val title = _messages.value.firstOrNull { it.type == MessageType.USER }?.text?.take(30) ?: "Chat ${_sessions.value.size + 1}"
+            val newSession = ChatSession(
+                id = java.util.UUID.randomUUID().toString(),
+                title = title,
+                messages = _messages.value
+            )
+            _sessions.update { listOf(newSession) + it.take(10) }
+        }
         _messages.value = emptyList()
+    }
+
+    fun loadSession(session: ChatSession) {
+        if (_messages.value.isNotEmpty() && _messages.value != session.messages) {
+            val title = _messages.value.firstOrNull { it.type == MessageType.USER }?.text?.take(30) ?: "Chat ${_sessions.value.size + 1}"
+            val currentSession = ChatSession(
+                id = java.util.UUID.randomUUID().toString(),
+                title = title,
+                messages = _messages.value
+            )
+            _sessions.update { current -> (listOf(currentSession) + current).distinctBy { it.messages } }
+        }
+        _messages.value = session.messages
     }
 
     fun injectCrashLog(log: String) {

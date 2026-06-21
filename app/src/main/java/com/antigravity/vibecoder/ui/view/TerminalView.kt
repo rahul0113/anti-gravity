@@ -74,13 +74,7 @@ fun TerminalView(
                 Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White, modifier = Modifier.size(20.dp))
             }
             Spacer(modifier = Modifier.width(16.dp))
-            Box(
-                modifier = Modifier
-                    .glassButton()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                Text("✦ AntiGravity Plus", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            }
+            Text("Chat", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
         }
 
         // Output Stream Log Panel (Chat)
