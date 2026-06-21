@@ -52,6 +52,8 @@ import com.antigravity.vibecoder.ui.theme.TerminalGreen
 import com.antigravity.vibecoder.ui.theme.TerminalGray
 import com.antigravity.vibecoder.ui.theme.glassPanel
 import com.antigravity.vibecoder.ui.theme.liquidBackground
+import com.antigravity.vibecoder.ui.theme.TerminalWhite
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.antigravity.vibecoder.ui.view.EditorView
 import com.antigravity.vibecoder.ui.view.PreviewView
 import com.antigravity.vibecoder.ui.view.SettingsView
