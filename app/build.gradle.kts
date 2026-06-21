@@ -8,14 +8,6 @@ android {
     namespace = "com.antigravity.vibecoder"
     compileSdk = 34
 
-    // ROOT CRASH FIX: profileinstaller is a Play Store JIT-optimization library.
-    // It requires both concurrent-futures AND guava's ListenableFuture — neither
-    // is available in this APK. Since we don't distribute via Play Store, exclude it
-    // entirely. This eliminates the NoClassDefFoundError on every cold launch.
-    configurations.all {
-        exclude(group = "androidx.profileinstaller", module = "profileinstaller")
-    }
-
     defaultConfig {
         applicationId = "com.antigravity.vibecoder"
         minSdk = 21
@@ -83,7 +75,11 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.github.mwiede:jsch:0.2.17")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
-    // No guava / concurrent-futures needed — profileinstaller is excluded above.
+    // FIX: Replace the empty guava stub (9999.0-empty) with the real concurrent-futures library.
+    // The empty stub contained zero class bytes, so profileinstaller crashed at runtime
+    // trying to load ListenableFuture and AbstractResolvableFuture from base.apk.
+    implementation("androidx.concurrent:concurrent-futures:1.1.0")
+    implementation("androidx.concurrent:concurrent-futures-ktx:1.1.0")
 
     // Testing — plain JVM unit tests (no Robolectric, no Compose UI test runtime needed)
     testImplementation("junit:junit:4.13.2")
