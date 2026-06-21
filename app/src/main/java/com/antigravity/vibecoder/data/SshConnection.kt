@@ -20,6 +20,7 @@ import java.util.Vector
 object SshConnection {
 
     // O-5 FIX: Session pool — reuse authenticated sessions instead of creating one per call
+    private val sessionLock = Any()
     private var cachedSession: Session? = null
     private var cachedConfig: ConnectionConfig? = null
 
@@ -42,7 +43,7 @@ object SshConnection {
         return session
     }
 
-    private fun getSession(config: ConnectionConfig): Session {
+    private fun getSession(config: ConnectionConfig): Session = synchronized(sessionLock) {
         val existing = cachedSession
         // Reuse if same config and still connected
         if (existing != null && existing.isConnected && cachedConfig == config) {
@@ -55,7 +56,7 @@ object SshConnection {
         return fresh
     }
 
-    fun invalidateSession() {
+    fun invalidateSession() = synchronized(sessionLock) {
         cachedSession?.disconnect()
         cachedSession = null
         cachedConfig = null
@@ -134,9 +135,8 @@ object SshConnection {
             val session = getSession(config)
             channel = session.openChannel("sftp") as ChannelSftp
             channel.connect()
-            @Suppress("UNCHECKED_CAST")
-            val rawList = channel.ls(path) as Vector<ChannelSftp.LsEntry>
-            rawList
+            val rawList = channel.ls(path) as? Vector<*> ?: Vector<Any>()
+            rawList.filterIsInstance<ChannelSftp.LsEntry>()
                 .filter { it.filename != "." && it.filename != ".." }
                 .map { entry ->
                     val fullPath = if (path.endsWith("/")) "$path${entry.filename}" else "$path/${entry.filename}"

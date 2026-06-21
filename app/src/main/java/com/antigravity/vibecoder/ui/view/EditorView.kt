@@ -89,8 +89,11 @@ fun EditorView(
         }.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
     }
 
+    var reloadJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
     fun reloadFiles() {
-        coroutineScope.launch {
+        reloadJob?.cancel()
+        reloadJob = coroutineScope.launch {
             fileList = when (config.executionMode) {
                 ExecutionMode.TERMUX_SERVICE -> {
                     val path = config.workspacePath.shellSingleQuote()
@@ -279,7 +282,7 @@ fun EditorView(
                     Row(modifier = Modifier.fillMaxWidth()) {
                         // Line numbers — P-1 FIX: Avoid string allocation (fileContent.lines().size creates thousands of objects)
                         // Using count { it == '\n' } is O(N) but zero allocation.
-                        val lineCount = remember(fileContent) { fileContent.count { it == '\n' } + 1 }
+                        val lineCount = remember(fileContent) { minOf(fileContent.count { it == '\n' } + 1, 9999) }
                         val lineNumbers = remember(lineCount) { (1..lineCount).joinToString("\n") }
 
                         Text(

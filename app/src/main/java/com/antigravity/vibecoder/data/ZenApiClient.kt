@@ -37,13 +37,15 @@ class ZenApiClient(
     private val baseUrl: String = "https://opencode.ai/zen/v1",
     private val model: String = "opencode/zen-coder-1"
 ) {
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
-        .build()
+    companion object {
+        private val client = OkHttpClient.Builder()
+            .connectTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .build()
 
-    private val json = Json { ignoreUnknownKeys = true }
+        private val json = Json { ignoreUnknownKeys = true }
+    }
 
     suspend fun getCompletion(messages: List<ZenMessage>): Result<String> = withContext(Dispatchers.IO) {
         val requestBody = ZenRequest(

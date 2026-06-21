@@ -106,7 +106,9 @@ class MainActivity : ComponentActivity() {
                 // the landscape orientation when the app is backgrounded and recreated.
                 LaunchedEffect(currentScreen, isLandscape) {
                     if (currentScreen == Screen.TERMINAL || currentScreen == Screen.SETTINGS) {
-                        isLandscape = false
+                        if (isLandscape) {
+                            isLandscape = false
+                        }
                         this@MainActivity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                     } else {
                         this@MainActivity.requestedOrientation = if (isLandscape)

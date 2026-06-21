@@ -118,7 +118,7 @@ object TermuxRunner {
 
                     try {
                         context.startService(runIntent)
-                    } catch (e: Exception) {
+                    } catch (e: Throwable) {
                         activeCallbacks.remove(requestId)
                         if (continuation.isActive) {
                             continuation.resume(

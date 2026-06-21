@@ -161,7 +161,7 @@ fun PreviewView(
                             }
                         }
                         loadUrl(currentUrl)
-                        webViewRef = this
+                        post { webViewRef = this@apply }
                     }
                 },
                 update = { view ->

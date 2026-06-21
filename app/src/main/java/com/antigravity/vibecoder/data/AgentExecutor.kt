@@ -53,8 +53,7 @@ class AgentExecutor(private val context: Context) {
         model: String,
         config: ConnectionConfig
     ) {
-        if (_isProcessing.value) return
-        _isProcessing.value = true
+        if (!_isProcessing.compareAndSet(expect = false, update = true)) return
         addMessage(prompt, MessageType.USER, "User")
 
         try {
