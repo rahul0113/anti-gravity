@@ -256,8 +256,6 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    }
-
     // CRASH-4 FIX: Properly unregister BroadcastReceiver when Activity is destroyed
     override fun onDestroy() {
         super.onDestroy()
