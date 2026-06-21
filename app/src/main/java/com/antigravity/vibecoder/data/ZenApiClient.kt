@@ -32,6 +32,12 @@ data class ZenChoice(
     val message: ZenMessage
 )
 
+@Serializable
+data class ZenModel(val id: String)
+
+@Serializable
+data class ZenModelsResponse(val data: List<ZenModel>)
+
 class ZenApiClient(
     private val apiKey: String,
     private val baseUrl: String = "https://opencode.ai/zen/v1",
@@ -45,6 +51,28 @@ class ZenApiClient(
             .build()
 
         private val json = Json { ignoreUnknownKeys = true }
+
+        suspend fun getAvailableModels(apiKey: String, baseUrl: String): Result<List<String>> = withContext(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url("$baseUrl/models")
+                .get()
+                .addHeader("Authorization", "Bearer $apiKey")
+                .addHeader("Content-Type", "application/json")
+                .build()
+
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        return@withContext Result.failure(IOException("Failed to fetch models: Code ${response.code}"))
+                    }
+                    val responseBodyStr = response.body?.string() ?: return@withContext Result.failure(IOException("Empty response body"))
+                    val parsed = json.decodeFromString<ZenModelsResponse>(responseBodyStr)
+                    Result.success(parsed.data.map { it.id })
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
     }
 
     suspend fun getCompletion(messages: List<ZenMessage>): Result<String> = withContext(Dispatchers.IO) {

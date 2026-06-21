@@ -101,18 +101,58 @@ fun SettingsView(
                     )
                 )
 
-                OutlinedTextField(
-                    value = modelName,
-                    onValueChange = onModelNameChange,
-                    label = { Text("Model Name", color = TerminalGray) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = TerminalGreen,
-                        unfocusedBorderColor = DarkBorder,
-                        focusedTextColor = TerminalWhite,
-                        unfocusedTextColor = TerminalWhite
+                var expanded by remember { mutableStateOf(false) }
+                var availableModels by remember { mutableStateOf<List<String>>(emptyList()) }
+                var isLoadingModels by remember { mutableStateOf(false) }
+
+                LaunchedEffect(apiKey, baseUrl) {
+                    if (apiKey.isNotEmpty() && baseUrl.isNotEmpty()) {
+                        isLoadingModels = true
+                        val result = com.antigravity.vibecoder.data.ZenApiClient.getAvailableModels(apiKey, baseUrl)
+                        result.onSuccess { models ->
+                            availableModels = models
+                        }
+                        isLoadingModels = false
+                    }
+                }
+
+                @OptIn(ExperimentalMaterial3Api::class)
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = it }
+                ) {
+                    OutlinedTextField(
+                        value = modelName,
+                        onValueChange = onModelNameChange,
+                        label = { Text(if (isLoadingModels) "Fetching models..." else "Model Name", color = TerminalGray) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = TerminalGreen,
+                            unfocusedBorderColor = DarkBorder,
+                            focusedTextColor = TerminalWhite,
+                            unfocusedTextColor = TerminalWhite
+                        )
                     )
-                )
+                    
+                    if (availableModels.isNotEmpty()) {
+                        ExposedDropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false },
+                            modifier = Modifier.background(DarkSurface).border(1.dp, DarkBorder, RoundedCornerShape(4.dp))
+                        ) {
+                            availableModels.forEach { model ->
+                                DropdownMenuItem(
+                                    text = { Text(model, color = TerminalWhite) },
+                                    onClick = {
+                                        onModelNameChange(model)
+                                        expanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
