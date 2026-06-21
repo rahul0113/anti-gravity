@@ -44,6 +44,16 @@ class AgentExecutor(private val context: Context) {
         _messages.value = emptyList()
     }
 
+    fun injectCrashLog(log: String) {
+        _messages.update { current ->
+            current + ChatMessage(
+                sender = "CrashReporter",
+                text = "⚠️ PREVIOUS SESSION CRASHED — Stack trace below:\n\n$log",
+                type = MessageType.SYSTEM_ERROR
+            )
+        }
+    }
+
     private fun String.shellSingleQuote(): String = "'" + this.replace("'", "'\\''") + "'"
 
     suspend fun executeUserPrompt(

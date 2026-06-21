@@ -53,12 +53,16 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        try {
         // CRASH-7 FIX: Removed EncryptedSharedPreferences because hardware Keystore generation
         // blocks the UI thread for >5 seconds on Realme/ColorOS devices, triggering fatal ANRs.
         // Standard sandboxed SharedPreferences is sufficient and instantly loads without blocking.
         sharedPreferences = getSharedPreferences("vibecoder_prefs", Context.MODE_PRIVATE)
 
         agentExecutor = AgentExecutor(applicationContext)
+
+        // Read any crash log from the PREVIOUS session
+        val previousCrashLog = VibeCoderApplication.consumeLastCrashLog(this)
 
         setContent {
             AntiGravityVibeCoderTheme {
@@ -69,6 +73,13 @@ class MainActivity : ComponentActivity() {
                 }
                 fun SharedPreferences.safeGetInt(key: String, defValue: Int): Int {
                     return try { getInt(key, defValue) } catch (e: Exception) { defValue }
+                }
+
+                // If there was a crash last time, inject it into the terminal so it's visible
+                LaunchedEffect(Unit) {
+                    if (previousCrashLog != null) {
+                        agentExecutor.injectCrashLog(previousCrashLog)
+                    }
                 }
 
                 var apiKey by remember { mutableStateOf(sharedPreferences.safeGetString("api_key", "")) }
@@ -254,6 +265,17 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+        } catch (e: Throwable) {
+            // If onCreate itself crashes (e.g. class not found, resource missing), save the trace
+            // and show a minimal error UI instead of silently dying
+            try {
+                val prefs = getSharedPreferences("vibecoder_crash_log", Context.MODE_PRIVATE)
+                val trace = "ONCREATE CRASH:\n${e.javaClass.name}: ${e.message}\n" +
+                    e.stackTrace.take(20).joinToString("\n") { "  at $it" }
+                prefs.edit().putString("last_crash", trace).commit()
+            } catch (_: Throwable) {}
+            throw e // rethrow so Android shows the standard dialog
         }
     }
     // CRASH-4 FIX: Properly unregister BroadcastReceiver when Activity is destroyed
