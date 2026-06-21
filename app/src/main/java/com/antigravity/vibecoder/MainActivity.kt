@@ -360,6 +360,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        }
         } catch (e: Throwable) {
             // If onCreate itself crashes (e.g. class not found, resource missing), save the trace
             // and show a minimal error UI instead of silently dying
