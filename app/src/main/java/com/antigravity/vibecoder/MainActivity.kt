@@ -312,7 +312,7 @@ class MainActivity : ComponentActivity() {
                                         containerColor = Color(0xFFE56A30),
                                         contentColor = Color.White,
                                         icon = { Icon(Icons.Default.Edit, contentDescription = "New Chat", modifier = Modifier.size(20.dp)) },
-                                        text = { Text("Chat", fontWeight = FontWeight.Bold) }
+                                        text = { Text("New Chat", fontWeight = FontWeight.Bold) }
                                     )
                                 }
                             }
