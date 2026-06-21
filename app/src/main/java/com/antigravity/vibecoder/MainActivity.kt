@@ -1,11 +1,17 @@
 package com.antigravity.vibecoder
 
+import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Bundle
+import android.widget.ScrollView
+import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -63,6 +69,12 @@ class MainActivity : ComponentActivity() {
 
         // Read any crash log from the PREVIOUS session
         val previousCrashLog = VibeCoderApplication.consumeLastCrashLog(this)
+
+        // Show crash log in a NATIVE dialog with Copy button BEFORE Compose loads.
+        // This works even if Compose itself is what crashed.
+        if (previousCrashLog != null) {
+            showCrashDialog(previousCrashLog)
+        }
 
         setContent {
             AntiGravityVibeCoderTheme {
@@ -282,6 +294,42 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         TermuxRunner.unregisterReceiver(applicationContext)
+    }
+
+    /**
+     * Shows a native AlertDialog with the crash log and a COPY button.
+     * Fires BEFORE Compose setContent(), so it works even if Compose is crashing.
+     */
+    private fun showCrashDialog(log: String) {
+        // Build a scrollable TextView to hold the full trace
+        val scrollView = ScrollView(this)
+        val tv = TextView(this).apply {
+            text = log
+            textSize = 11f
+            setTextIsSelectable(true)
+            val pad = (12 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
+            typeface = android.graphics.Typeface.MONOSPACE
+        }
+        scrollView.addView(tv)
+
+        AlertDialog.Builder(this)
+            .setTitle("🚨 Previous Session Crashed")
+            .setMessage("The app crashed last time. Tap COPY to send the log for debugging.")
+            .setView(scrollView)
+            .setPositiveButton("COPY LOG") { dialog, _ ->
+                try {
+                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("CrashLog", log))
+                    Toast.makeText(this, "✅ Crash log copied to clipboard!", Toast.LENGTH_LONG).show()
+                } catch (e: Throwable) {
+                    Toast.makeText(this, "Failed to copy: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton("DISMISS") { dialog, _ -> dialog.dismiss() }
+            .setCancelable(true)
+            .show()
     }
 }
 

@@ -16,6 +16,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import com.antigravity.vibecoder.model.ChatMessage
 import com.antigravity.vibecoder.model.MessageType
 import com.antigravity.vibecoder.ui.theme.*
@@ -32,6 +34,7 @@ fun TerminalView(
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    val clipboardManager = LocalClipboardManager.current
 
     // B-3 FIX: Use messages.lastOrNull() as key — correctly detects clear+add (same size) events
     // O-8 FIX: Also only auto-scroll when user is near the bottom
@@ -84,16 +87,39 @@ fun TerminalView(
                 )
             }
 
-            Button(
-                onClick = onClearConsole,
-                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                shape = RoundedCornerShape(4.dp),
-                modifier = Modifier
-                    .border(1.dp, TerminalRed.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                    .height(24.dp)
-            ) {
-                Text("RESET_LOGS", color = TerminalRed, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // COPY LOG button — copies all messages to clipboard
+                Button(
+                    onClick = {
+                        val logText = buildString {
+                            for (msg in messages) {
+                                appendLine("[${msg.type.name}] ${msg.sender}: ${msg.text}")
+                                appendLine("---")
+                            }
+                        }
+                        clipboardManager.setText(AnnotatedString(logText))
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier
+                        .border(1.dp, TerminalCyan.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                        .height(24.dp)
+                ) {
+                    Text("COPY LOG", color = TerminalCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+
+                Button(
+                    onClick = onClearConsole,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier
+                        .border(1.dp, TerminalRed.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                        .height(24.dp)
+                ) {
+                    Text("RESET_LOGS", color = TerminalRed, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
 
