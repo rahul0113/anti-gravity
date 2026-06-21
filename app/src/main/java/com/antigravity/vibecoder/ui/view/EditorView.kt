@@ -32,9 +32,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.vibecoder.data.SshConnection
 import com.antigravity.vibecoder.data.TermuxRunner
+import com.antigravity.vibecoder.model.ChatMessage
+import com.antigravity.vibecoder.model.MessageType
 import com.antigravity.vibecoder.model.ConnectionConfig
 import com.antigravity.vibecoder.model.ExecutionMode
 import com.antigravity.vibecoder.model.WorkspaceFile
+import com.antigravity.vibecoder.ui.view.TerminalMessageItem
 import com.antigravity.vibecoder.ui.theme.*
 import kotlinx.coroutines.launch
 import java.io.File
@@ -43,8 +46,11 @@ private fun String.shellSingleQuote(): String = "'" + this.replace("'", "'\\''")
 
 @Composable
 fun EditorView(
+    messages: List<ChatMessage>,
+    isProcessing: Boolean,
     config: ConnectionConfig,
     onSendPrompt: (String) -> Unit,
+    onClearConsole: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -123,6 +129,13 @@ fun EditorView(
 
     // C-1 FIX: Single shared scrollState on the outer Box — no nested scroll conflict
     val editorScrollState = rememberScrollState()
+    val terminalListState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            terminalListState.animateScrollToItem(messages.size - 1)
+        }
+    }
 
     Row(modifier = modifier.fillMaxSize().background(DarkBackground)) {
         // File Explorer Sidebar
@@ -271,11 +284,10 @@ fun EditorView(
                     Text("SELECT A FILE TO VIBE EDIT", color = TerminalGray, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
                 }
             } else {
-                // C-1 FIX: Single outer Box with verticalScroll — no nested scroll conflict.
-                // Both line numbers and BasicTextField live inside this scrollable container.
+                // Editor code view (Top part)
                 Box(
                     modifier = Modifier
-                        .weight(1f)
+                        .weight(0.7f)
                         .fillMaxWidth()
                         .verticalScroll(editorScrollState)
                 ) {
@@ -310,6 +322,55 @@ fun EditorView(
                                 color = TerminalWhite
                             )
                         )
+                    }
+                }
+            }
+
+            // Raw Terminal Output (Bottom part)
+            Column(
+                modifier = Modifier
+                    .weight(if (currentFilePath == null) 1f else 0.3f)
+                    .fillMaxWidth()
+                    .background(DarkBackground)
+                    .border(1.dp, DarkBorder)
+            ) {
+                // Terminal Header
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(DarkSurface)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.size(6.dp).background(if (isProcessing) TerminalAmber else TerminalGreen, RoundedCornerShape(3.dp)))
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (isProcessing) "RUNNING" else "IDLE", color = if (isProcessing) TerminalAmber else TerminalGreen, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    }
+                    Button(
+                        onClick = onClearConsole,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                        modifier = Modifier.height(18.dp)
+                    ) {
+                        Text("CLEAR", color = TerminalRed, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                // Terminal Logs
+                LazyColumn(
+                    state = terminalListState,
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (messages.isEmpty()) {
+                        item { Text("--- RAW TERMINAL OUTPUT ---", color = TerminalGray, fontSize = 10.sp, fontFamily = FontFamily.Monospace) }
+                    } else {
+                        items(messages, key = { it.id }) { message ->
+                            // Use the old TerminalMessageItem that renders raw text
+                            TerminalMessageItem(message)
+                        }
                     }
                 }
             }

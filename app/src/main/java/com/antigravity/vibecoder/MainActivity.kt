@@ -20,6 +20,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Terminal
@@ -209,7 +210,7 @@ class MainActivity : ComponentActivity() {
                             horizontalArrangement = Arrangement.SpaceAround,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            BottomTabItem("TERMINAL", Icons.Default.Terminal, currentScreen == Screen.TERMINAL) { currentScreen = Screen.TERMINAL }
+                            BottomTabItem("CHAT", Icons.Default.Forum, currentScreen == Screen.TERMINAL) { currentScreen = Screen.TERMINAL }
                             BottomTabItem("EDITOR", Icons.Default.Code, currentScreen == Screen.EDITOR) { currentScreen = Screen.EDITOR }
                             BottomTabItem("PREVIEW", Icons.Default.Visibility, currentScreen == Screen.PREVIEW) { currentScreen = Screen.PREVIEW }
                             BottomTabItem("SETTINGS", Icons.Default.Settings, currentScreen == Screen.SETTINGS) { currentScreen = Screen.SETTINGS }
@@ -258,8 +259,11 @@ class MainActivity : ComponentActivity() {
                                 onClearConsole = { agentExecutor.clearHistory() }
                             )
                             Screen.EDITOR -> EditorView(
+                                messages = messages,
+                                isProcessing = isProcessing,
                                 config = config,
-                                onSendPrompt = { sendPrompt(it); currentScreen = Screen.TERMINAL },
+                                onSendPrompt = { sendPrompt(it); },
+                                onClearConsole = { agentExecutor.clearHistory() },
                                 modifier = Modifier.fillMaxSize()
                             )
                             Screen.PREVIEW -> PreviewView(url = previewUrl, modifier = Modifier.fillMaxSize())

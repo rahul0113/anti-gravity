@@ -18,6 +18,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Person
 import com.antigravity.vibecoder.model.ChatMessage
 import com.antigravity.vibecoder.model.MessageType
 import com.antigravity.vibecoder.ui.theme.*
@@ -123,73 +127,90 @@ fun TerminalView(
             }
         }
 
-        // Output Stream Log Panel
+        // Output Stream Log Panel (Chat)
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (messages.isEmpty()) {
                 item {
-                    Text(
-                        text = "--- ANTI-GRAVITY VIBE CODER CLI v1.0.0 ---\nReady for autonomous coding actions.\nProvide an instruction below to start vibe coding...",
-                        color = TerminalGray,
-                        fontSize = 12.sp,
-                        lineHeight = 18.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(Icons.Default.SmartToy, contentDescription = "AI", tint = TerminalGreen, modifier = Modifier.size(48.dp))
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            text = "How can I help you code today?",
+                            color = TerminalWhite,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.SansSerif
+                        )
+                    }
                 }
             } else {
-                // O-8 FIX: Stable key prevents full-list recompose when a message is added
-                items(messages, key = { it.id }) { message ->
-                    TerminalMessageItem(message)
+                // Filter messages: Only show user, agent responses, and maybe tool calls as status
+                val chatMessages = messages.filter { 
+                    it.type == MessageType.USER || 
+                    it.type == MessageType.AGENT_RESPONSE || 
+                    it.type == MessageType.TOOL_CALL 
+                }
+                
+                items(chatMessages, key = { it.id }) { message ->
+                    ChatMessageItem(message)
+                }
+                
+                if (isProcessing) {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(start = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = TerminalGreen, strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Agent is thinking...", color = TerminalGray, fontSize = 12.sp)
+                        }
+                    }
                 }
             }
         }
 
-        // Glowing Prompt Input Console Box
+        // Modern Chat Input Box
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(DarkSurface)
-                .border(1.dp, color = DarkBorder)
-                .padding(12.dp),
+                .padding(12.dp)
+                .background(DarkSurface, shape = RoundedCornerShape(24.dp))
+                .border(1.dp, color = DarkBorder, shape = RoundedCornerShape(24.dp))
+                .padding(horizontal = 16.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "$ ",
-                color = TerminalCyan,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
-            
-            OutlinedTextField(
+            BasicTextField(
                 value = inputText,
                 onValueChange = { if (!isProcessing) inputText = it },
-                placeholder = { Text("vibe_instruction --force", color = TerminalGray.copy(alpha = 0.5f), fontSize = 13.sp) },
-                singleLine = false,
-                maxLines = 3,
-                enabled = !isProcessing,
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 8.dp),
+                    .padding(vertical = 12.dp),
                 textStyle = LocalTextStyle.current.copy(
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 13.sp,
-                    color = TerminalWhite
+                    fontSize = 15.sp,
+                    color = TerminalWhite,
+                    fontFamily = FontFamily.SansSerif
                 ),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedBorderColor = Color.Transparent,
-                    disabledBorderColor = Color.Transparent
-                )
+                decorationBox = { innerTextField ->
+                    if (inputText.isEmpty()) {
+                        Text("Message the AI Agent...", color = TerminalGray.copy(alpha = 0.5f), fontSize = 15.sp)
+                    }
+                    innerTextField()
+                },
+                maxLines = 5
             )
 
-            Button(
+            IconButton(
                 onClick = {
                     if (inputText.trim().isNotEmpty()) {
                         onSendPrompt(inputText)
@@ -197,20 +218,18 @@ fun TerminalView(
                     }
                 },
                 enabled = !isProcessing && inputText.trim().isNotEmpty(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = TerminalGreen,
-                    disabledContainerColor = TerminalGreen.copy(alpha = 0.2f)
-                ),
-                shape = RoundedCornerShape(4.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                modifier = Modifier.height(32.dp)
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(
+                        if (!isProcessing && inputText.trim().isNotEmpty()) TerminalGreen else DarkBorder, 
+                        shape = RoundedCornerShape(18.dp)
+                    )
             ) {
-                Text(
-                    text = "RUN",
-                    color = if (isProcessing) TerminalGray else DarkBackground,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
+                Icon(
+                    imageVector = Icons.Default.Send,
+                    contentDescription = "Send",
+                    tint = DarkBackground,
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }
@@ -218,70 +237,76 @@ fun TerminalView(
 }
 
 @Composable
-fun TerminalMessageItem(message: ChatMessage) {
-    val prefixColor = when (message.type) {
-        MessageType.USER -> TerminalCyan
-        MessageType.AGENT_THOUGHT -> TerminalAmber
-        MessageType.AGENT_RESPONSE -> TerminalGreen
-        MessageType.TOOL_CALL -> TerminalCyan
-        MessageType.TOOL_OUTPUT -> TerminalGreenDim
-        MessageType.SYSTEM_INFO -> TerminalGray
-        MessageType.SYSTEM_ERROR -> TerminalRed
-    }
-
-    val prefix = when (message.type) {
-        MessageType.USER -> "user@android:~\$ "
-        MessageType.AGENT_THOUGHT -> "[AGENT_THINKING] "
-        MessageType.AGENT_RESPONSE -> "[AGENT_RESPONSE]\n"
-        MessageType.TOOL_CALL -> "[EXEC_TOOL] "
-        MessageType.TOOL_OUTPUT -> "[STDOUT]\n"
-        MessageType.SYSTEM_INFO -> "[SYS_INFO] "
-        MessageType.SYSTEM_ERROR -> "[SYS_ERROR] "
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp)
-    ) {
-        Row {
+fun ChatMessageItem(message: ChatMessage) {
+    val isUser = message.type == MessageType.USER
+    val isToolCall = message.type == MessageType.TOOL_CALL
+    
+    if (isToolCall) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.Center
+        ) {
             Text(
-                text = prefix,
-                color = prefixColor,
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace
+                text = "⚡ Running: ${message.text.take(50).replace("\n", " ")}...",
+                color = TerminalGray,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.background(DarkSurface, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp)
             )
-            if (message.type != MessageType.AGENT_RESPONSE && message.type != MessageType.TOOL_OUTPUT) {
-                // CRASH-5 FIX: Truncate massive strings to prevent Compose Text layout OOM / height crashes
-                val safeText = if (message.text.length > 10000) message.text.take(10000) + "\n...[OUTPUT TRUNCATED FOR PERFORMANCE]" else message.text
-                Text(
-                    text = safeText,
-                    color = TerminalWhite,
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
         }
-        
-        if (message.type == MessageType.AGENT_RESPONSE || message.type == MessageType.TOOL_OUTPUT) {
+        return
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+    ) {
+        if (!isUser) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 8.dp, top = 4.dp)
-                    .background(DarkSurface)
-                    .border(1.dp, DarkBorder, RoundedCornerShape(4.dp))
-                    .padding(8.dp)
+                    .size(32.dp)
+                    .background(TerminalGreen.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
+                    .border(1.dp, TerminalGreen, RoundedCornerShape(16.dp)),
+                contentAlignment = Alignment.Center
             ) {
-                // CRASH-5 FIX: Truncate massive strings to prevent Compose Text layout OOM / height crashes
-                val safeText = if (message.text.length > 15000) message.text.take(15000) + "\n...[OUTPUT TRUNCATED FOR PERFORMANCE]" else message.text
-                Text(
-                    text = safeText,
-                    color = if (message.type == MessageType.TOOL_OUTPUT) TerminalGreenDim else TerminalWhite,
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    lineHeight = 16.sp
+                Icon(Icons.Default.SmartToy, contentDescription = "AI", tint = TerminalGreen, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(8.dp))
+        }
+
+        Box(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .background(
+                    if (isUser) DarkSurface else Color.Transparent,
+                    RoundedCornerShape(
+                        topStart = 16.dp, 
+                        topEnd = 16.dp, 
+                        bottomStart = if (isUser) 16.dp else 0.dp, 
+                        bottomEnd = if (isUser) 0.dp else 16.dp
+                    )
                 )
+                .padding(if (isUser) 12.dp else 4.dp)
+        ) {
+            Text(
+                text = message.text,
+                color = TerminalWhite,
+                fontSize = 15.sp,
+                fontFamily = FontFamily.SansSerif,
+                lineHeight = 22.sp
+            )
+        }
+
+        if (isUser) {
+            Spacer(Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .background(DarkSurface, RoundedCornerShape(16.dp))
+                    .border(1.dp, DarkBorder, RoundedCornerShape(16.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Person, contentDescription = "User", tint = TerminalGray, modifier = Modifier.size(20.dp))
             }
         }
     }
