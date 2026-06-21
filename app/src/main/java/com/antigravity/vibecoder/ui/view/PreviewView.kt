@@ -16,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -74,32 +75,48 @@ fun PreviewView(
         }
     }
 
+    // Liquid Glass Gradient Background
+    val glassGradient = Brush.linearGradient(
+        colors = listOf(
+            Color(0xFF1E293B), // Deep Slate
+            Color(0xFF3B82F6).copy(alpha = 0.3f), // Soft Blue
+            Color(0xFF8B5CF6).copy(alpha = 0.2f), // Purple Tint
+            Color(0xFF0F172A)  // Very Dark Blue
+        )
+    )
+
+    // Glassmorphism modifier
+    val glassModifier = Modifier
+        .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(16.dp))
+        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
+
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(DarkBackground)
+            .background(glassGradient)
+            .padding(12.dp)
     ) {
-        // Top Bar
+        // Top Bar - Liquid Glass Style
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(DarkSurface)
-                .border(1.dp, DarkBorder)
-                .padding(8.dp),
+                .then(glassModifier)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = "ARTIFACT PREVIEW",
-                color = TerminalCyan,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
+                text = "Preview",
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FontFamily.SansSerif
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                IconButton(onClick = { webViewRef?.reload() }, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = TerminalGreen, modifier = Modifier.size(16.dp))
+                IconButton(onClick = { webViewRef?.reload() }, modifier = Modifier.size(36.dp).background(Color.White.copy(alpha=0.1f), RoundedCornerShape(18.dp))) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White, modifier = Modifier.size(20.dp))
                 }
+                Spacer(Modifier.width(8.dp))
                 IconButton(
                     onClick = {
                         if (currentUrl.isNotEmpty() && currentUrl != "about:blank") {
@@ -108,37 +125,48 @@ fun PreviewView(
                             } catch (e: Exception) { /* no browser */ }
                         }
                     },
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(36.dp).background(Color.White.copy(alpha=0.1f), RoundedCornerShape(18.dp))
                 ) {
-                    Icon(Icons.Default.OpenInBrowser, contentDescription = "Open in Browser", tint = TerminalAmber, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.OpenInBrowser, contentDescription = "Open in Browser", tint = Color.White, modifier = Modifier.size(20.dp))
                 }
             }
         }
+        
+        Spacer(Modifier.height(12.dp))
 
-        // URL Bar
+        // URL Bar - Glass
         OutlinedTextField(
             value = currentUrl,
             onValueChange = { currentUrl = it },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).height(48.dp),
-            textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = TerminalWhite),
-            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = TerminalGreenDim, unfocusedBorderColor = DarkBorder),
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = RoundedCornerShape(26.dp),
+            textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.SansSerif, fontSize = 14.sp, color = Color.White),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color.White.copy(alpha=0.5f), 
+                unfocusedBorderColor = Color.White.copy(alpha=0.2f),
+                focusedContainerColor = Color.White.copy(alpha=0.05f),
+                unfocusedContainerColor = Color.White.copy(alpha=0.05f)
+            ),
             singleLine = true,
             keyboardActions = androidx.compose.foundation.text.KeyboardActions(
                 onDone = { webViewRef?.loadUrl(currentUrl) }
             )
         )
+        
+        Spacer(Modifier.height(12.dp))
 
-        // WebView
+        // WebView - Glass Container
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(8.dp)
-                .border(1.dp, DarkBorder, RoundedCornerShape(4.dp))
+                .then(glassModifier)
+                .padding(2.dp) // inner padding so WebView doesn't overlap the border
         ) {
             AndroidView(
                 factory = { ctx ->
                     WebView(ctx).apply {
+                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
 

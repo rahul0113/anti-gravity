@@ -34,6 +34,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -192,7 +193,10 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val sendPrompt: (String) -> Unit = { prompt ->
-                    if (apiKey.isEmpty() && config.executionMode != ExecutionMode.SANDBOX) {
+                    val normalized = prompt.trim().lowercase()
+                    if (normalized == "open code" || normalized == "code" || normalized == "code .") {
+                        currentScreen = Screen.EDITOR
+                    } else if (apiKey.isEmpty() && config.executionMode != ExecutionMode.SANDBOX) {
                         coroutineScope.launch {
                             agentExecutor.executeUserPrompt("Please go to SETTINGS and set your API key first.", "", "", "", config)
                         }
