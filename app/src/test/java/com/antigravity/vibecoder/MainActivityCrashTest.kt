@@ -24,7 +24,7 @@ class MainActivityCrashTest {
         composeTestRule.waitForIdle()
 
         // Advance Robolectric's main looper clock by 10 seconds to simulate "open for 8 second"
-        ShadowLooper.idleMainLooper(Duration.ofSeconds(10))
+        ShadowLooper.idleMainLooper(10000L, java.util.concurrent.TimeUnit.MILLISECONDS)
         composeTestRule.waitForIdle()
 
         // If the test reaches this point without throwing an exception, the app survived 10 seconds.
