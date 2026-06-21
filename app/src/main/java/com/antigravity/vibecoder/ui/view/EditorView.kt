@@ -56,6 +56,7 @@ fun EditorView(
     config: ConnectionConfig,
     onSendPrompt: (String) -> Unit,
     onClearConsole: () -> Unit,
+    onConfigChange: (ConnectionConfig) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -160,8 +161,40 @@ fun EditorView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("FILES", color = TerminalGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = { reloadFiles() }, modifier = Modifier.size(24.dp)) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Reload", tint = TerminalGreen, modifier = Modifier.size(16.dp))
+                    Row {
+                        var showOpenFolderDialog by remember { mutableStateOf(false) }
+                        IconButton(onClick = { showOpenFolderDialog = true }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Default.FolderOpen, contentDescription = "Open Folder", tint = TerminalCyan, modifier = Modifier.size(16.dp))
+                        }
+                        IconButton(onClick = { reloadFiles() }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Reload", tint = TerminalGreen, modifier = Modifier.size(16.dp))
+                        }
+
+                        if (showOpenFolderDialog) {
+                            var newPath by remember { mutableStateOf(config.workspacePath) }
+                            AlertDialog(
+                                onDismissRequest = { showOpenFolderDialog = false },
+                                title = { Text("Open Workspace Folder") },
+                                text = {
+                                    OutlinedTextField(
+                                        value = newPath,
+                                        onValueChange = { newPath = it },
+                                        label = { Text("Absolute Path") },
+                                        singleLine = true
+                                    )
+                                },
+                                confirmButton = {
+                                    TextButton(onClick = {
+                                        onConfigChange(config.copy(workspacePath = newPath))
+                                        showOpenFolderDialog = false
+                                        // files reload will trigger via LaunchedEffect when config changes upstream
+                                    }) { Text("Open") }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { showOpenFolderDialog = false }) { Text("Cancel") }
+                                }
+                            )
+                        }
                     }
                 }
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {

@@ -269,6 +269,30 @@ class MainActivity : ComponentActivity() {
                                 menuItem("Preview", Icons.Default.Visibility, Screen.PREVIEW)
                                 menuItem("Settings", Icons.Default.Settings, Screen.SETTINGS)
                                 
+                                Spacer(Modifier.height(16.dp))
+                                Text("Open Code CLI", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TerminalWhite.copy(alpha=0.7f), modifier = Modifier.padding(bottom = 8.dp))
+                                
+                                val comingSoon = { title: String -> 
+                                    Toast.makeText(applicationContext, "$title: Manage via OpenCode CLI in Terminal", Toast.LENGTH_SHORT).show()
+                                    coroutineScope.launch { drawerState.close() }
+                                }
+                                
+                                Row(modifier = Modifier.fillMaxWidth().clickable { comingSoon("MCP Servers") }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Apps, contentDescription = null, tint = TerminalWhite, modifier = Modifier.size(24.dp))
+                                    Spacer(Modifier.width(16.dp))
+                                    Text("MCP Servers", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TerminalWhite)
+                                }
+                                Row(modifier = Modifier.fillMaxWidth().clickable { comingSoon("Skills") }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Edit, contentDescription = null, tint = TerminalWhite, modifier = Modifier.size(24.dp))
+                                    Spacer(Modifier.width(16.dp))
+                                    Text("Skills", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TerminalWhite)
+                                }
+                                Row(modifier = Modifier.fillMaxWidth().clickable { comingSoon("Agents") }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Visibility, contentDescription = null, tint = TerminalWhite, modifier = Modifier.size(24.dp))
+                                    Spacer(Modifier.width(16.dp))
+                                    Text("Agents", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TerminalWhite)
+                                }
+                                
                                 Spacer(Modifier.height(24.dp))
                                 
                                 // Recents Header
@@ -356,6 +380,7 @@ class MainActivity : ComponentActivity() {
                                 config = config,
                                 onSendPrompt = { sendPrompt(it); },
                                 onClearConsole = { agentExecutor.clearHistory() },
+                                onConfigChange = saveConfig,
                                 modifier = Modifier.fillMaxSize()
                             )
                             Screen.PREVIEW -> PreviewView(url = previewUrl, modifier = Modifier.fillMaxSize())
