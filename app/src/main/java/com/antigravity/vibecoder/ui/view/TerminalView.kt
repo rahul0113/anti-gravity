@@ -17,12 +17,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.SmartToy
-import androidx.compose.material.icons.filled.Person
 import com.antigravity.vibecoder.model.ChatMessage
 import com.antigravity.vibecoder.model.MessageType
 import com.antigravity.vibecoder.ui.theme.*
@@ -34,11 +35,12 @@ fun TerminalView(
     isProcessing: Boolean,
     onSendPrompt: (String) -> Unit,
     onClearConsole: () -> Unit,
+    onOpenDrawer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    var inputText by remember { mutableStateOf("") }
     val clipboardManager = LocalClipboardManager.current
 
     // B-3 FIX: Use messages.lastOrNull() as key — correctly detects clear+add (same size) events
@@ -58,73 +60,25 @@ fun TerminalView(
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(DarkBackground)
-    ) {
-        // Status & Console Controls Header
+    Column(modifier = modifier.fillMaxSize().background(Color.Black)) {
+        
+        // ChatGPT-like Top Bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(DarkSurface)
-                .border(1.dp, color = DarkBorder)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .background(
-                            if (isProcessing) TerminalAmber else TerminalGreen,
-                            shape = RoundedCornerShape(4.dp)
-                        )
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = if (isProcessing) "AGENT_BUSY (THINKING/RUNNING)" else "AGENT_ONLINE (IDLE)",
-                    color = if (isProcessing) TerminalAmber else TerminalGreen,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
-                )
+            IconButton(onClick = onOpenDrawer, modifier = Modifier.size(36.dp).background(DarkSurface, RoundedCornerShape(18.dp))) {
+                Icon(Icons.Default.Menu, contentDescription = "Menu", tint = TerminalWhite, modifier = Modifier.size(20.dp))
             }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                // COPY LOG button — copies all messages to clipboard
-                Button(
-                    onClick = {
-                        val logText = buildString {
-                            for (msg in messages) {
-                                appendLine("[${msg.type.name}] ${msg.sender}: ${msg.text}")
-                                appendLine("---")
-                            }
-                        }
-                        clipboardManager.setText(AnnotatedString(logText))
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                    shape = RoundedCornerShape(4.dp),
-                    modifier = Modifier
-                        .border(1.dp, TerminalCyan.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                        .height(24.dp)
-                ) {
-                    Text("COPY LOG", color = TerminalCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                }
-
-                Button(
-                    onClick = onClearConsole,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                    shape = RoundedCornerShape(4.dp),
-                    modifier = Modifier
-                        .border(1.dp, TerminalRed.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                        .height(24.dp)
-                ) {
-                    Text("RESET_LOGS", color = TerminalRed, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                }
+            Spacer(modifier = Modifier.width(16.dp))
+            Box(
+                modifier = Modifier
+                    .background(DarkSurface, RoundedCornerShape(20.dp))
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Text("✦ AntiGravity Plus", color = TerminalWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
 
@@ -181,22 +135,28 @@ fun TerminalView(
             }
         }
 
-        // Modern Chat Input Box
+        // ChatGPT-like Modern Input Box
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(12.dp)
                 .background(DarkSurface, shape = RoundedCornerShape(24.dp))
-                .border(1.dp, color = DarkBorder, shape = RoundedCornerShape(24.dp))
-                .padding(horizontal = 16.dp, vertical = 4.dp),
+                .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            IconButton(
+                onClick = { /* Add functionality later */ },
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Add", tint = TerminalGray, modifier = Modifier.size(24.dp))
+            }
+            
             BasicTextField(
                 value = inputText,
                 onValueChange = { if (!isProcessing) inputText = it },
                 modifier = Modifier
                     .weight(1f)
-                    .padding(vertical = 12.dp),
+                    .padding(vertical = 12.dp, horizontal = 4.dp),
                 textStyle = LocalTextStyle.current.copy(
                     fontSize = 15.sp,
                     color = TerminalWhite,
@@ -204,34 +164,50 @@ fun TerminalView(
                 ),
                 decorationBox = { innerTextField ->
                     if (inputText.isEmpty()) {
-                        Text("Message the AI Agent...", color = TerminalGray.copy(alpha = 0.5f), fontSize = 15.sp)
+                        Text("Ask Anti-Gravity...", color = TerminalGray.copy(alpha = 0.7f), fontSize = 15.sp)
                     }
                     innerTextField()
                 },
                 maxLines = 5
             )
 
-            IconButton(
-                onClick = {
-                    if (inputText.trim().isNotEmpty()) {
-                        onSendPrompt(inputText)
-                        inputText = ""
-                    }
-                },
-                enabled = !isProcessing && inputText.trim().isNotEmpty(),
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(
-                        if (!isProcessing && inputText.trim().isNotEmpty()) TerminalGreen else DarkBorder, 
-                        shape = RoundedCornerShape(18.dp)
+            if (inputText.trim().isEmpty()) {
+                IconButton(
+                    onClick = { /* Mic functionality later */ },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(Icons.Default.Mic, contentDescription = "Mic", tint = TerminalGray, modifier = Modifier.size(24.dp))
+                }
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .background(Color(0xFFE56A30), RoundedCornerShape(16.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.SmartToy, contentDescription = "Voice Mode", tint = Color.White, modifier = Modifier.size(16.dp))
+                }
+                Spacer(Modifier.width(4.dp))
+            } else {
+                IconButton(
+                    onClick = {
+                        if (inputText.trim().isNotEmpty()) {
+                            onSendPrompt(inputText)
+                            inputText = ""
+                        }
+                    },
+                    enabled = !isProcessing && inputText.trim().isNotEmpty(),
+                    modifier = Modifier
+                        .size(36.dp)
+                        .background(TerminalWhite, RoundedCornerShape(18.dp))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Send,
+                        contentDescription = "Send",
+                        tint = Color.Black,
+                        modifier = Modifier.size(18.dp)
                     )
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Send,
-                    contentDescription = "Send",
-                    tint = DarkBackground,
-                    modifier = Modifier.size(18.dp)
-                )
+                }
+                Spacer(Modifier.width(4.dp))
             }
         }
     }

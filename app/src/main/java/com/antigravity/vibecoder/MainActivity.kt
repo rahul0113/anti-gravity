@@ -23,8 +23,12 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -199,64 +203,126 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                Scaffold(
-                    bottomBar = {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(DarkSurface)
-                                .border(1.dp, DarkBorder)
-                                .height(56.dp),
-                            horizontalArrangement = Arrangement.SpaceAround,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            BottomTabItem("CHAT", Icons.Default.Forum, currentScreen == Screen.TERMINAL) { currentScreen = Screen.TERMINAL }
-                            BottomTabItem("EDITOR", Icons.Default.Code, currentScreen == Screen.EDITOR) { currentScreen = Screen.EDITOR }
-                            BottomTabItem("PREVIEW", Icons.Default.Visibility, currentScreen == Screen.PREVIEW) { currentScreen = Screen.PREVIEW }
-                            BottomTabItem("SETTINGS", Icons.Default.Settings, currentScreen == Screen.SETTINGS) { currentScreen = Screen.SETTINGS }
+                val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
-                            // Rotate button only on Editor & Preview
-                            if (currentScreen == Screen.EDITOR || currentScreen == Screen.PREVIEW) {
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
-                                        .clickable {
-                                            isLandscape = !isLandscape
-                                            this@MainActivity.requestedOrientation = if (isLandscape)
-                                                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                                            else
-                                                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                        },
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    drawerContent = {
+                        ModalDrawerSheet(
+                            drawerContainerColor = DarkBackground,
+                            drawerContentColor = TerminalWhite,
+                            modifier = Modifier.width(300.dp)
+                        ) {
+                            Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 24.dp)) {
+                                // Header
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.ScreenRotation,
-                                        contentDescription = "Rotate Screen",
-                                        tint = if (isLandscape) TerminalGreen else TerminalGray,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(Modifier.height(2.dp))
-                                    Text(
-                                        text = if (isLandscape) "LAND" else "PORT",
-                                        color = if (isLandscape) TerminalGreen else TerminalGray,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace
+                                    Text("AntiGravity", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TerminalWhite)
+                                    Box(modifier = Modifier.size(32.dp).background(DarkSurface, RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.Settings, contentDescription = "Settings", modifier = Modifier.size(20.dp), tint = TerminalWhite)
+                                    }
+                                }
+
+                                // Main Menu
+                                val menuItem: @Composable (String, ImageVector, Screen) -> Unit = { title, icon, screen ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { 
+                                                currentScreen = screen
+                                                coroutineScope.launch { drawerState.close() }
+                                            }
+                                            .padding(vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(icon, contentDescription = title, tint = TerminalWhite, modifier = Modifier.size(24.dp))
+                                        Spacer(Modifier.width(16.dp))
+                                        Text(title, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TerminalWhite)
+                                    }
+                                }
+
+                                menuItem("Chat", Icons.Default.Forum, Screen.TERMINAL)
+                                menuItem("Editor", Icons.Default.Code, Screen.EDITOR)
+                                menuItem("Preview", Icons.Default.Visibility, Screen.PREVIEW)
+                                menuItem("Settings", Icons.Default.Settings, Screen.SETTINGS)
+                                
+                                Spacer(Modifier.height(24.dp))
+                                
+                                // Recents Header
+                                Text("Recents", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TerminalWhite.copy(alpha=0.7f), modifier = Modifier.padding(bottom = 16.dp))
+                                
+                                // Mock Recent Conversations
+                                val recentItem: @Composable (String) -> Unit = { title ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null, tint = TerminalWhite, modifier = Modifier.size(20.dp))
+                                        Spacer(Modifier.width(16.dp))
+                                        Text(title, fontSize = 15.sp, color = TerminalWhite)
+                                    }
+                                }
+                                
+                                recentItem("Running Antigravity CLI")
+                                recentItem("Android Bootstrap Guide")
+                                recentItem("Termux Setup Tips")
+                                
+                                Spacer(Modifier.weight(1f))
+                                
+                                // New Chat FAB inside drawer
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    ExtendedFloatingActionButton(
+                                        onClick = { 
+                                            currentScreen = Screen.TERMINAL
+                                            agentExecutor.clearHistory()
+                                            coroutineScope.launch { drawerState.close() }
+                                        },
+                                        containerColor = Color(0xFFE56A30),
+                                        contentColor = Color.White,
+                                        icon = { Icon(Icons.Default.Edit, contentDescription = "New Chat", modifier = Modifier.size(20.dp)) },
+                                        text = { Text("Chat", fontWeight = FontWeight.Bold) }
                                     )
                                 }
                             }
                         }
                     }
-                ) { innerPadding ->
+                ) {
+                    Scaffold(
+                        floatingActionButton = {
+                            if (currentScreen == Screen.EDITOR || currentScreen == Screen.PREVIEW) {
+                                FloatingActionButton(
+                                    onClick = {
+                                        isLandscape = !isLandscape
+                                        this@MainActivity.requestedOrientation = if (isLandscape)
+                                            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                        else
+                                            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                    },
+                                    containerColor = DarkSurface,
+                                    contentColor = TerminalWhite
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Icon(Icons.Default.ScreenRotation, contentDescription = "Rotate")
+                                        Text(if (isLandscape) "LAND" else "PORT", fontSize = 8.sp)
+                                    }
+                                }
+                            }
+                        }
+                    ) { innerPadding ->
                     Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
                         when (currentScreen) {
                             Screen.TERMINAL -> TerminalView(
                                 messages = messages,
                                 isProcessing = isProcessing,
                                 onSendPrompt = { sendPrompt(it); },
-                                onClearConsole = { agentExecutor.clearHistory() }
+                                onClearConsole = { agentExecutor.clearHistory() },
+                                onOpenDrawer = { coroutineScope.launch { drawerState.open() } }
                             )
                             Screen.EDITOR -> EditorView(
                                 messages = messages,
@@ -337,34 +403,4 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable
-fun RowScope.BottomTabItem(
-    title: String,
-    icon: ImageVector,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .weight(1f)
-            .fillMaxHeight()
-            .clickable { onClick() },
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = title,
-            tint = if (isSelected) TerminalGreen else TerminalGray,
-            modifier = Modifier.size(20.dp)
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = title,
-            color = if (isSelected) TerminalGreen else TerminalGray,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace
-        )
-    }
-}
+// BottomTabItem removed
