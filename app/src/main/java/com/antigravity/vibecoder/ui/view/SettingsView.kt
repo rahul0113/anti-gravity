@@ -260,7 +260,6 @@ fun SettingsView(
                                         lineHeight = 14.sp
                                     )
                                 }
-                                }
                             }
                         }
                     }
