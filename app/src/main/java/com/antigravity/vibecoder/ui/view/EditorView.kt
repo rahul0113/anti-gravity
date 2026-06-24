@@ -193,7 +193,7 @@ private fun TerminalPanel(config: ConnectionConfig, modifier: Modifier = Modifie
         ) {
             Text("$ ", color = TerminalGreen, fontSize = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
             BasicTextField(
-                value = input, onValueChange = { input = it },
+                value = input, onValueChange = { newValue -> input = newValue },
                 modifier = Modifier.weight(1f).padding(start = 4.dp),
                 textStyle = LocalTextStyle.current.copy(color = TerminalWhite, fontSize = 12.sp, fontFamily = FontFamily.Monospace),
                 cursorBrush = SolidColor(TerminalGreen), singleLine = true,
@@ -233,7 +233,11 @@ private fun TerminalPanel(config: ConnectionConfig, modifier: Modifier = Modifie
                     }
                     focusManager.clearFocus()
                 })
-            if (running) CircularProgressIndicator(modifier = Modifier.size(14.dp), color = TerminalGreen, strokeWidth = 2.dp)
+            if (running) {
+                CircularProgressIndicator(modifier = Modifier.size(14.dp), color = TerminalGreen, strokeWidth = 2.dp)
+            } else {
+                // spacer when not running
+            }
         }
     }
 }
