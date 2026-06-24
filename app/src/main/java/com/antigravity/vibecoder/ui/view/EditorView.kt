@@ -44,7 +44,6 @@ import com.antigravity.vibecoder.model.ChatMessage
 import com.antigravity.vibecoder.model.MessageType
 import com.antigravity.vibecoder.model.ConnectionConfig
 import com.antigravity.vibecoder.model.ExecutionMode
-import com.antigravity.vibecoder.model.WorkspaceFile
 import com.antigravity.vibecoder.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

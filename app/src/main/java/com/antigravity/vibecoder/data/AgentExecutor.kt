@@ -51,9 +51,8 @@ class AgentExecutor(private val context: Context) {
         _isProcessing.value = true
 
         currentChatJob = CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            val responseContent = StringBuilder()
             try {
-                val responseContent = StringBuilder()
-
                 // Add empty agent message as placeholder
                 _messages.update {
                     it + ChatMessage(
