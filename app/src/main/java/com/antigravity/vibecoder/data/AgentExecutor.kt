@@ -7,7 +7,6 @@ import com.antigravity.vibecoder.model.ExecutionMode
 import com.antigravity.vibecoder.model.MessageType
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import java.io.File
 import java.util.UUID
 
 data class ChatSession(
@@ -28,7 +27,6 @@ class AgentExecutor(private val context: Context) {
     private val _sessions = MutableStateFlow<List<ChatSession>>(emptyList())
     val sessions: StateFlow<List<ChatSession>> = _sessions.asStateFlow()
 
-    private var currentChatJob: Job? = null
     private var grpcClient: OpenClaudeGrpcClient? = null
 
     fun executeUserPrompt(
@@ -41,26 +39,15 @@ class AgentExecutor(private val context: Context) {
         if (prompt.isBlank() || _isProcessing.value) return
 
         _messages.update {
-            it + ChatMessage(
-                sender = "user",
-                text = prompt,
-                type = MessageType.USER,
-                timestamp = System.currentTimeMillis()
-            )
+            it + ChatMessage(sender = "user", text = prompt, type = MessageType.USER)
         }
         _isProcessing.value = true
 
-        currentChatJob = CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             val responseContent = StringBuilder()
             try {
-                // Add empty agent message as placeholder
                 _messages.update {
-                    it + ChatMessage(
-                        sender = "agent",
-                        text = "",
-                        type = MessageType.AGENT_RESPONSE,
-                        timestamp = System.currentTimeMillis()
-                    )
+                    it + ChatMessage(sender = "agent", text = "", type = MessageType.AGENT_RESPONSE)
                 }
 
                 when (config.executionMode) {
@@ -68,56 +55,38 @@ class AgentExecutor(private val context: Context) {
                         executeWithOpenClaude(prompt, config, modelName, responseContent)
                     }
                     ExecutionMode.SANDBOX -> {
-                        val result = executeInSandbox(prompt, apiKey, baseUrl, modelName)
-                        result.fold(
-                            onSuccess = { responseContent.append(it) },
-                            onFailure = { responseContent.append("Error: ${it.message}") }
-                        )
+                        // Termux-based API call
+                        val cmd = buildSandboxCommand(prompt, apiKey, baseUrl, modelName)
+                        val result = TermuxRunner.executeCommand(context, cmd, config.workspacePath)
+                        if (result.error == null) responseContent.append(result.stdout)
+                        else responseContent.append("Error: ${result.error}")
                     }
                     ExecutionMode.TERMUX_SERVICE -> {
-                        val result = executeWithTermux(prompt, config)
-                        result.fold(
-                            onSuccess = { responseContent.append(it) },
-                            onFailure = { responseContent.append("Error: ${it.message}") }
+                        val result = TermuxRunner.executeCommand(
+                            context, "echo '${prompt.sq()}' | claude --print", config.workspacePath
                         )
+                        if (result.error == null) responseContent.append(result.stdout)
+                        else responseContent.append("Error: ${result.error ?: result.stderr}")
                     }
                     ExecutionMode.SSH -> {
-                        val result = executeWithSsh(prompt, config)
-                        result.fold(
-                            onSuccess = { responseContent.append(it) },
-                            onFailure = { responseContent.append("Error: ${it.message}") }
-                        )
+                        responseContent.append("SSH mode: use Termux to connect, then run OpenClaude from there.")
                     }
                 }
 
                 if (responseContent.isNotEmpty()) {
-                    val finalContent = responseContent.toString()
-                    updateLastAgentMessage(finalContent)
+                    updateLastAgentMessage(responseContent.toString())
                     saveCurrentChat(prompt)
                 }
             } catch (e: CancellationException) {
-                val finalContent = responseContent.toString()
-                if (finalContent.isNotEmpty()) {
-                    updateLastAgentMessage(finalContent)
-                } else {
-                    // Remove empty agent placeholder
-                    _messages.update { messages ->
-                        val lastAgent = messages.indexOfLast { it.type == MessageType.AGENT_RESPONSE }
-                        if (lastAgent >= 0) messages.toMutableList().apply { removeAt(lastAgent) } else messages
-                    }
+                if (responseContent.isNotEmpty()) updateLastAgentMessage(responseContent.toString())
+                else _messages.update { msgs ->
+                    val last = msgs.indexOfLast { it.type == MessageType.AGENT_RESPONSE }
+                    if (last >= 0) msgs.toMutableList().apply { removeAt(last) } else msgs
                 }
             } catch (e: Exception) {
-                val errorMsg = ChatMessage(
-                    sender = "system",
-                    text = "Error: ${e.message ?: "Unknown error occurred"}",
-                    type = MessageType.SYSTEM_ERROR,
-                    timestamp = System.currentTimeMillis()
-                )
-                _messages.update { messages ->
-                    val cleaned = messages.dropLastWhile {
-                        it.type == MessageType.AGENT_RESPONSE && it.text.isEmpty()
-                    }
-                    cleaned + errorMsg
+                _messages.update { msgs ->
+                    val cleaned = msgs.dropLastWhile { it.type == MessageType.AGENT_RESPONSE && it.text.isEmpty() }
+                    cleaned + ChatMessage(sender = "system", text = "Error: ${e.message}", type = MessageType.SYSTEM_ERROR)
                 }
             } finally {
                 _isProcessing.value = false
@@ -125,39 +94,24 @@ class AgentExecutor(private val context: Context) {
         }
     }
 
-    /** Update the last AGENT_RESPONSE message's text */
     private fun updateLastAgentMessage(newText: String) {
-        _messages.update { messages ->
-            val lastIdx = messages.indexOfLast { it.type == MessageType.AGENT_RESPONSE }
-            if (lastIdx >= 0) {
-                messages.toMutableList().apply {
-                    set(lastIdx, this[lastIdx].copy(text = newText))
-                }
-            } else messages
+        _messages.update { msgs ->
+            val idx = msgs.indexOfLast { it.type == MessageType.AGENT_RESPONSE }
+            if (idx >= 0) msgs.toMutableList().apply { set(idx, this[idx].copy(text = newText)) } else msgs
         }
     }
 
     private suspend fun executeWithOpenClaude(
-        prompt: String,
-        config: ConnectionConfig,
-        modelName: String,
-        responseContent: StringBuilder
+        prompt: String, config: ConnectionConfig, modelName: String, responseContent: StringBuilder
     ) {
         if (grpcClient == null || !grpcClient!!.isConnected()) {
-            grpcClient = OpenClaudeGrpcClient(
-                host = "127.0.0.1",
-                port = config.grpcPort
-            )
+            grpcClient = OpenClaudeGrpcClient(host = "127.0.0.1", port = config.grpcPort)
             grpcClient!!.connect()
-        }
-
-        val workDir = config.workspacePath.ifBlank {
-            "/data/data/com.termux/files/home"
         }
 
         grpcClient!!.chat(
             message = prompt,
-            workingDirectory = workDir,
+            workingDirectory = config.workspacePath.ifBlank { "/data/data/com.termux/files/home" },
             model = modelName.takeIf { it.isNotBlank() }
         ).collect { event ->
             when (event) {
@@ -167,23 +121,13 @@ class AgentExecutor(private val context: Context) {
                 }
                 is ChatEvent.ToolStarted -> {
                     _messages.update {
-                        it + ChatMessage(
-                            sender = "tool",
-                            text = "\n\nUsing ${event.toolName}...",
-                            type = MessageType.TOOL_CALL,
-                            timestamp = System.currentTimeMillis()
-                        )
+                        it + ChatMessage(sender = "tool", text = "Using ${event.toolName}...", type = MessageType.TOOL_CALL)
                     }
                 }
                 is ChatEvent.ToolResult -> {
                     if (event.isError) {
                         _messages.update {
-                            it + ChatMessage(
-                                sender = "tool",
-                                text = "${event.toolName} error: ${event.output.take(500)}",
-                                type = MessageType.TOOL_OUTPUT,
-                                timestamp = System.currentTimeMillis()
-                            )
+                            it + ChatMessage(sender = "tool", text = "${event.toolName}: ${event.output.take(500)}", type = MessageType.TOOL_OUTPUT)
                         }
                     }
                 }
@@ -195,67 +139,26 @@ class AgentExecutor(private val context: Context) {
                     responseContent.append("\n\nError: ${event.message}")
                     updateLastAgentMessage(responseContent.toString())
                 }
-                is ChatEvent.Done -> { /* Stream completed */ }
+                is ChatEvent.Done -> {}
             }
         }
     }
 
-    private suspend fun executeInSandbox(
-        prompt: String,
-        apiKey: String,
-        baseUrl: String,
-        modelName: String
-    ): Result<String> {
-        val client = ZenApiClient(apiKey = apiKey, baseUrl = baseUrl, model = modelName)
-        return client.sendMessage(listOf(ZenMessage("user", prompt)))
-    }
-
-    private suspend fun executeWithTermux(prompt: String, config: ConnectionConfig): Result<String> {
-        val result = TermuxRunner.executeCommand(context, "echo '${prompt.sq()}' | claude --print", config.workspacePath)
-        return if (result.error == null && result.stderr.isBlank()) {
-            Result.success(result.stdout)
-        } else {
-            Result.failure(Exception(result.error ?: result.stderr.ifBlank { "Command failed with exit code ${result.exitCode}" }))
-        }
-    }
-
-    private suspend fun executeWithSsh(prompt: String, config: ConnectionConfig): Result<String> {
-        return try {
-            val sshResult = SshConnection.executeCommand(config, "echo '${prompt.sq()}' | claude --print")
-            Result.success(sshResult)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+    private fun buildSandboxCommand(prompt: String, apiKey: String, baseUrl: String, model: String): String {
+        val json = """{"model":"$model","messages":[{"role":"user","content":"${prompt.replace("\"", "\\\"")}"}]}"""
+        return "curl -s -X POST '$baseUrl/chat/completions' -H 'Authorization: Bearer $apiKey' -H 'Content-Type: application/json' -d '$json' | head -c 4000"
     }
 
     private fun saveCurrentChat(firstPrompt: String) {
-        val title = if (firstPrompt.length > 40) firstPrompt.take(40) + "..." else firstPrompt
-        val session = ChatSession(
-            id = UUID.randomUUID().toString(),
-            title = title,
-            messages = _messages.value.toList(),
-            timestamp = System.currentTimeMillis()
-        )
+        val title = firstPrompt.take(40) + if (firstPrompt.length > 40) "..." else ""
+        val session = ChatSession(id = UUID.randomUUID().toString(), title = title, messages = _messages.value.toList(), timestamp = System.currentTimeMillis())
         _sessions.update { (listOf(session) + it).take(20) }
     }
 
-    fun loadSession(session: ChatSession) {
-        _messages.value = session.messages
-    }
-
-    fun clearHistory() {
-        _messages.value = emptyList()
-    }
-
+    fun loadSession(session: ChatSession) { _messages.value = session.messages }
+    fun clearHistory() { _messages.value = emptyList() }
     fun injectCrashLog(log: String) {
-        _messages.value = listOf(
-            ChatMessage(
-                sender = "system",
-                text = "Previous session crashed:\n$log",
-                type = MessageType.SYSTEM_ERROR,
-                timestamp = System.currentTimeMillis()
-            )
-        )
+        _messages.value = listOf(ChatMessage(sender = "system", text = "Previous session crashed:\n$log", type = MessageType.SYSTEM_ERROR))
     }
 
     private fun String.sq(): String = this.replace("'", "'\\''")

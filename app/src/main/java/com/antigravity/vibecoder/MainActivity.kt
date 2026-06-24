@@ -32,7 +32,6 @@ import com.antigravity.vibecoder.data.AgentExecutor
 import com.antigravity.vibecoder.data.TermuxRunner
 import com.antigravity.vibecoder.model.ConnectionConfig
 import com.antigravity.vibecoder.model.ExecutionMode
-import com.antigravity.vibecoder.model.MessageType
 import com.antigravity.vibecoder.ui.theme.*
 import com.antigravity.vibecoder.ui.view.EditorView
 import com.antigravity.vibecoder.ui.view.SettingsView
@@ -43,117 +42,89 @@ enum class Screen { CHAT, EDITOR, SETTINGS }
 
 class MainActivity : ComponentActivity() {
 
-    private lateinit var sharedPreferences: SharedPreferences
+    private lateinit var prefs: SharedPreferences
     private lateinit var agentExecutor: AgentExecutor
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         try {
-            sharedPreferences = getSharedPreferences("vibecoder_prefs", Context.MODE_PRIVATE)
+            prefs = getSharedPreferences("vibecoder_prefs", Context.MODE_PRIVATE)
             agentExecutor = AgentExecutor(applicationContext)
 
-            val previousCrashLog = VibeCoderApplication.consumeLastCrashLog(this)
-            if (previousCrashLog != null) showCrashDialog(previousCrashLog)
+            val crashLog = VibeCoderApplication.consumeLastCrashLog(this)
+            if (crashLog != null) showCrashDialog(crashLog)
 
             setContent {
                 AntiGravityVibeCoderTheme {
-                    fun SharedPreferences.safeGetString(key: String, defValue: String): String {
-                        return try { getString(key, defValue) ?: defValue } catch (e: Exception) { defValue }
-                    }
-                    fun SharedPreferences.safeGetInt(key: String, defValue: Int): Int {
-                        return try { getInt(key, defValue) } catch (e: Exception) { defValue }
-                    }
+                    fun SharedPreferences.str(key: String, def: String) = try { getString(key, def) ?: def } catch (_: Exception) { def }
+                    fun SharedPreferences.int(key: String, def: Int) = try { getInt(key, def) } catch (_: Exception) { def }
 
-                    LaunchedEffect(Unit) {
-                        if (previousCrashLog != null) agentExecutor.injectCrashLog(previousCrashLog)
-                    }
+                    LaunchedEffect(Unit) { if (crashLog != null) agentExecutor.injectCrashLog(crashLog) }
 
-                    // State
-                    var apiKey by remember { mutableStateOf(sharedPreferences.safeGetString("api_key", "")) }
-                    var baseUrl by remember { mutableStateOf(sharedPreferences.safeGetString("base_url", com.antigravity.vibecoder.data.Provider.OPENAI.defaultBaseUrl)) }
-                    var modelName by remember { mutableStateOf(sharedPreferences.safeGetString("model_name", com.antigravity.vibecoder.data.Provider.OPENAI.defaultModel)) }
-                    var executionModeStr by remember { mutableStateOf(sharedPreferences.safeGetString("execution_mode", ExecutionMode.OPENCLAUDE.name)) }
-                    val executionMode = try { ExecutionMode.valueOf(executionModeStr) } catch (e: Exception) { ExecutionMode.OPENCLAUDE }
-                    var sshHost by remember { mutableStateOf(sharedPreferences.safeGetString("ssh_host", "127.0.0.1")) }
-                    var sshPort by remember { mutableIntStateOf(sharedPreferences.safeGetInt("ssh_port", 8022)) }
-                    var sshUser by remember { mutableStateOf(sharedPreferences.safeGetString("ssh_user", "android")) }
-                    var sshPass by remember { mutableStateOf(sharedPreferences.safeGetString("ssh_pass", "")) }
-                    var sshWorkspace by remember { mutableStateOf(sharedPreferences.safeGetString("ssh_workspace", "/data/data/com.termux/files/home")) }
-                    val grpcPort by remember { mutableIntStateOf(sharedPreferences.safeGetInt("grpc_port", 50051)) }
+                    var apiKey by remember { mutableStateOf(prefs.str("api_key", "")) }
+                    var baseUrl by remember { mutableStateOf(prefs.str("base_url", com.antigravity.vibecoder.data.Provider.OPENAI.defaultBaseUrl)) }
+                    var modelName by remember { mutableStateOf(prefs.str("model_name", com.antigravity.vibecoder.data.Provider.OPENAI.defaultModel)) }
+                    var execModeStr by remember { mutableStateOf(prefs.str("exec_mode", ExecutionMode.OPENCLAUDE.name)) }
+                    val execMode = try { ExecutionMode.valueOf(execModeStr) } catch (_: Exception) { ExecutionMode.OPENCLAUDE }
+                    var sshHost by remember { mutableStateOf(prefs.str("ssh_host", "127.0.0.1")) }
+                    var sshPort by remember { mutableIntStateOf(prefs.int("ssh_port", 8022)) }
+                    var sshUser by remember { mutableStateOf(prefs.str("ssh_user", "android")) }
+                    var sshPass by remember { mutableStateOf(prefs.str("ssh_pass", "")) }
+                    var sshWork by remember { mutableStateOf(prefs.str("ssh_work", "/data/data/com.termux/files/home")) }
+                    val grpcPort by remember { mutableIntStateOf(prefs.int("grpc_port", 50051)) }
 
-                    val config = remember(executionMode, sshHost, sshPort, sshUser, sshPass, sshWorkspace, grpcPort) {
-                        ConnectionConfig(executionMode = executionMode, host = sshHost, port = sshPort, grpcPort = grpcPort, user = sshUser, passwordKey = sshPass, workspacePath = sshWorkspace)
+                    val config = remember(execMode, sshHost, sshPort, sshUser, sshPass, sshWork, grpcPort) {
+                        ConnectionConfig(execMode, sshHost, sshPort, grpcPort, sshUser, sshPass, sshWork)
                     }
 
-                    var currentScreen by remember { mutableStateOf(Screen.CHAT) }
+                    var screen by remember { mutableStateOf(Screen.CHAT) }
 
-                    // Portrait on chat and settings
-                    LaunchedEffect(currentScreen) {
-                        requestedOrientation = when (currentScreen) {
-                            Screen.CHAT, Screen.SETTINGS -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                            Screen.EDITOR -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                        }
+                    LaunchedEffect(screen) {
+                        requestedOrientation = if (screen == Screen.EDITOR) ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                        else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                     }
 
                     val messages by agentExecutor.messages.collectAsState()
                     val isProcessing by agentExecutor.isProcessing.collectAsState()
-                    val coroutineScope = rememberCoroutineScope()
+                    val scope = rememberCoroutineScope()
 
-                    val saveApiKey: (String) -> Unit = { apiKey = it; sharedPreferences.edit().putString("api_key", it).apply() }
-                    val saveBaseUrl: (String) -> Unit = { baseUrl = it; sharedPreferences.edit().putString("base_url", it).apply() }
-                    val saveModelName: (String) -> Unit = { modelName = it; sharedPreferences.edit().putString("model_name", it).apply() }
+                    val save: (String, String, String) -> Unit = { k, v, _ -> prefs.edit().putString(k, v).apply() }
                     val saveConfig: (ConnectionConfig) -> Unit = { c ->
-                        executionModeStr = c.executionMode.name; sshHost = c.host; sshPort = c.port; sshUser = c.user; sshPass = c.passwordKey; sshWorkspace = c.workspacePath
-                        sharedPreferences.edit().apply {
-                            putString("execution_mode", c.executionMode.name); putString("ssh_host", c.host); putInt("ssh_port", c.port); putString("ssh_user", c.user); putString("ssh_pass", c.passwordKey); putString("ssh_workspace", c.workspacePath)
-                        }.apply()
+                        execModeStr = c.executionMode.name; sshHost = c.host; sshPort = c.port; sshUser = c.user; sshPass = c.passwordKey; sshWork = c.workspacePath
+                        prefs.edit().putString("exec_mode", c.executionMode.name).putString("ssh_host", c.host).putInt("ssh_port", c.port)
+                            .putString("ssh_user", c.user).putString("ssh_pass", c.passwordKey).putString("ssh_work", c.workspacePath).apply()
                     }
 
                     val sendPrompt: (String) -> Unit = { prompt ->
-                        if (apiKey.isEmpty() && config.executionMode != ExecutionMode.SANDBOX) {
-                            coroutineScope.launch { agentExecutor.executeUserPrompt("Set your API key in Settings first.", "", "", "", config) }
-                        } else {
-                            coroutineScope.launch { agentExecutor.executeUserPrompt(prompt, apiKey, baseUrl, modelName, config) }
-                        }
+                        scope.launch { agentExecutor.executeUserPrompt(prompt, apiKey, baseUrl, modelName, config) }
                     }
 
-                    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+                    val drawerState = rememberDrawerState(DrawerValue.Closed)
 
-                    BackHandler(enabled = drawerState.isOpen || currentScreen != Screen.CHAT) {
-                        if (drawerState.isOpen) coroutineScope.launch { drawerState.close() }
-                        else currentScreen = Screen.CHAT
+                    BackHandler(enabled = drawerState.isOpen || screen != Screen.CHAT) {
+                        if (drawerState.isOpen) scope.launch { drawerState.close() } else screen = Screen.CHAT
                     }
 
-                    // Drawer
                     ModalNavigationDrawer(drawerState = drawerState, drawerContent = {
-                        ModalDrawerSheet(
-                            drawerContainerColor = Color.Transparent,
-                            drawerContentColor = TerminalWhite,
-                            modifier = Modifier.width(280.dp)
-                        ) {
+                        ModalDrawerSheet(drawerContainerColor = Color.Transparent, modifier = Modifier.width(280.dp)) {
                             Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .glassPanel(shape = RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp), alpha = 0.05f)
+                                modifier = Modifier.fillMaxSize().glassPanel(RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp), 0.05f)
                                     .padding(horizontal = 16.dp, vertical = 24.dp)
                             ) {
                                 Text("AntiGravity", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TerminalWhite)
                                 Spacer(Modifier.height(24.dp))
 
-                                val menu: @Composable (String, ImageVector, Screen) -> Unit = { title, icon, screen ->
-                                    val selected = currentScreen == screen
+                                fun menu(label: String, icon: ImageVector, s: Screen) {
+                                    val sel = screen == s
                                     Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(if (selected) TerminalGreen.copy(alpha = 0.12f) else Color.Transparent, RoundedCornerShape(10.dp))
-                                            .clickable { currentScreen = screen; coroutineScope.launch { drawerState.close() } }
-                                            .padding(vertical = 12.dp, horizontal = 12.dp),
+                                        modifier = Modifier.fillMaxWidth().background(if (sel) TerminalGreen.copy(alpha = 0.12f) else Color.Transparent, RoundedCornerShape(10.dp))
+                                            .clickable { screen = s; scope.launch { drawerState.close() } }.padding(vertical = 12.dp, horizontal = 12.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(icon, null, tint = if (selected) TerminalGreen else TerminalWhite, modifier = Modifier.size(22.dp))
+                                        Icon(icon, null, tint = if (sel) TerminalGreen else TerminalWhite, modifier = Modifier.size(22.dp))
                                         Spacer(Modifier.width(12.dp))
-                                        Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = if (selected) TerminalGreen else TerminalWhite)
+                                        Text(label, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = if (sel) TerminalGreen else TerminalWhite)
                                     }
                                 }
 
@@ -161,23 +132,21 @@ class MainActivity : ComponentActivity() {
                                 menu("Editor", Icons.Default.Code, Screen.EDITOR)
                                 menu("Settings", Icons.Default.Settings, Screen.SETTINGS)
 
-                                Spacer(Modifier.height(24.dp))
-                                HorizontalDivider(color = TerminalWhite.copy(alpha = 0.1f))
-
-                                // Recents
                                 Spacer(Modifier.height(16.dp))
+                                HorizontalDivider(color = TerminalWhite.copy(alpha = 0.1f))
+                                Spacer(Modifier.height(16.dp))
+
                                 Text("Recent Chats", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TerminalWhite.copy(alpha = 0.5f))
                                 Spacer(Modifier.height(8.dp))
-                                val chatSessions by agentExecutor.sessions.collectAsState()
-                                if (chatSessions.isEmpty()) {
+                                val sessions by agentExecutor.sessions.collectAsState()
+                                if (sessions.isEmpty()) {
                                     Text("No recent chats", fontSize = 13.sp, color = TerminalGray)
                                 } else {
-                                    chatSessions.take(10).forEach { session ->
+                                    sessions.take(10).forEach { session ->
                                         Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable { agentExecutor.loadSession(session); currentScreen = Screen.CHAT; coroutineScope.launch { drawerState.close() } }
-                                                .padding(vertical = 8.dp, horizontal = 8.dp),
+                                            modifier = Modifier.fillMaxWidth().clickable {
+                                                agentExecutor.loadSession(session); screen = Screen.CHAT; scope.launch { drawerState.close() }
+                                            }.padding(vertical = 8.dp, horizontal = 8.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Icon(Icons.Default.Chat, null, tint = TerminalGray, modifier = Modifier.size(16.dp))
@@ -189,12 +158,10 @@ class MainActivity : ComponentActivity() {
 
                                 Spacer(Modifier.weight(1f))
 
-                                // New Chat
                                 Button(
-                                    onClick = { agentExecutor.clearHistory(); currentScreen = Screen.CHAT; coroutineScope.launch { drawerState.close() } },
+                                    onClick = { agentExecutor.clearHistory(); screen = Screen.CHAT; scope.launch { drawerState.close() } },
                                     colors = ButtonDefaults.buttonColors(containerColor = TerminalGreen),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.fillMaxWidth()
+                                    shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Icon(Icons.Default.Edit, null, modifier = Modifier.size(18.dp))
                                     Spacer(Modifier.width(8.dp))
@@ -203,24 +170,14 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }) {
-                        // Content
-                        when (currentScreen) {
-                            Screen.CHAT -> TerminalView(
-                                messages = messages,
-                                isProcessing = isProcessing,
-                                onSendPrompt = sendPrompt,
-                                onClearConsole = { agentExecutor.clearHistory() },
-                                onOpenDrawer = { coroutineScope.launch { drawerState.open() } }
-                            )
-                            Screen.EDITOR -> EditorView(
-                                onOpenDrawer = { coroutineScope.launch { drawerState.open() } },
-                                config = config
-                            )
+                        when (screen) {
+                            Screen.CHAT -> TerminalView(messages, isProcessing, sendPrompt, { agentExecutor.clearHistory() }, { scope.launch { drawerState.open() } })
+                            Screen.EDITOR -> EditorView(onOpenDrawer = { scope.launch { drawerState.open() } }, config = config)
                             Screen.SETTINGS -> SettingsView(
-                                apiKey = apiKey, onApiKeyChange = saveApiKey,
-                                baseUrl = baseUrl, onBaseUrlChange = saveBaseUrl,
-                                modelName = modelName, onModelNameChange = saveModelName,
-                                config = config, onConfigChange = saveConfig
+                                apiKey, { apiKey = it; save("api_key", it, "") },
+                                baseUrl, { baseUrl = it; save("base_url", it, "") },
+                                modelName, { modelName = it; save("model_name", it, "") },
+                                config, saveConfig
                             )
                         }
                     }
@@ -228,8 +185,8 @@ class MainActivity : ComponentActivity() {
             }
         } catch (e: Throwable) {
             try {
-                val prefs = getSharedPreferences("vibecoder_crash_log", Context.MODE_PRIVATE)
-                prefs.edit().putString("last_crash", "CRASH: ${e.javaClass.name}: ${e.message}\n${e.stackTrace.take(15).joinToString("\n") { "  at $it" }}").commit()
+                getSharedPreferences("vibecoder_crash_log", Context.MODE_PRIVATE).edit()
+                    .putString("last_crash", "CRASH: ${e.javaClass.name}: ${e.message}\n${e.stackTrace.take(15).joinToString("\n") { "  at $it" }}").commit()
             } catch (_: Throwable) {}
             throw e
         }
@@ -241,21 +198,17 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showCrashDialog(log: String) {
-        val scrollView = ScrollView(this)
         val tv = TextView(this).apply {
             text = log; textSize = 11f; setTextIsSelectable(true)
             typeface = android.graphics.Typeface.MONOSPACE
-            val pad = (12 * resources.displayMetrics.density).toInt(); setPadding(pad, pad, pad, pad)
+            val p = (12 * resources.displayMetrics.density).toInt(); setPadding(p, p, p, p)
         }
-        scrollView.addView(tv)
-        AlertDialog.Builder(this)
-            .setTitle("Previous Session Crashed")
-            .setView(scrollView)
-            .setPositiveButton("Copy Log") { d, _ ->
+        AlertDialog.Builder(this).setTitle("Previous Session Crashed")
+            .setView(ScrollView(this).apply { addView(tv) })
+            .setPositiveButton("Copy") { d, _ ->
                 (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("CrashLog", log))
                 Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show(); d.dismiss()
             }
-            .setNegativeButton("Dismiss") { d, _ -> d.dismiss() }
-            .show()
+            .setNegativeButton("Dismiss") { d, _ -> d.dismiss() }.show()
     }
 }
