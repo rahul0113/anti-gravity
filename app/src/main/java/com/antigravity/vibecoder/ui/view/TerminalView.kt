@@ -19,9 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.SmartToy
@@ -139,13 +137,6 @@ fun TerminalView(
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(
-                onClick = { /* Add functionality later */ },
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add", tint = TerminalGray, modifier = Modifier.size(24.dp))
-            }
-            
             BasicTextField(
                 value = inputText,
                 onValueChange = { if (!isProcessing) inputText = it },
@@ -167,21 +158,7 @@ fun TerminalView(
             )
 
             if (inputText.trim().isEmpty()) {
-                IconButton(
-                    onClick = { /* Mic functionality later */ },
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(Icons.Default.Mic, contentDescription = "Mic", tint = TerminalGray, modifier = Modifier.size(24.dp))
-                }
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .background(Color(0xFFE56A30), RoundedCornerShape(16.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.SmartToy, contentDescription = "Voice Mode", tint = Color.White, modifier = Modifier.size(16.dp))
-                }
-                Spacer(Modifier.width(4.dp))
+                // Empty state — no buttons
             } else {
                 IconButton(
                     onClick = {

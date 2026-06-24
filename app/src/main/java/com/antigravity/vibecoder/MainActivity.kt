@@ -213,11 +213,8 @@ class MainActivity : ComponentActivity() {
                                 onOpenDrawer = { coroutineScope.launch { drawerState.open() } }
                             )
                             Screen.EDITOR -> EditorView(
-                                messages = messages,
-                                isProcessing = isProcessing,
-                                onSendPrompt = sendPrompt,
                                 onOpenDrawer = { coroutineScope.launch { drawerState.open() } },
-                                config = config, apiKey = apiKey, baseUrl = baseUrl, modelName = modelName
+                                config = config
                             )
                             Screen.SETTINGS -> SettingsView(
                                 apiKey = apiKey, onApiKeyChange = saveApiKey,

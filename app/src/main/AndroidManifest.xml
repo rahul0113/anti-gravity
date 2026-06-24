@@ -4,13 +4,9 @@
 
     <queries>
         <package android:name="com.termux" />
-        <intent>
-            <action android:name="android.speech.RecognitionService" />
-        </intent>
     </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
 
     <application

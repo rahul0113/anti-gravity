@@ -68,14 +68,9 @@ private fun parseLsLaOutput(output: String): List<WorkspaceFile> {
 
 @Composable
 fun EditorView(
-    messages: List<com.antigravity.vibecoder.model.ChatMessage>,
-    isProcessing: Boolean,
-    onSendPrompt: (String) -> Unit,
     onOpenDrawer: () -> Unit,
     config: ConnectionConfig,
-    apiKey: String,
-    baseUrl: String,
-    modelName: String
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
