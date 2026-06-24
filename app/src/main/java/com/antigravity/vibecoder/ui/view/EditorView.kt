@@ -63,8 +63,7 @@ private fun parseLsLaOutput(output: String): List<WorkspaceFile> {
                     name = name,
                     path = name,
                     isDirectory = isDirectory,
-                    size = size,
-                    lastModified = 0
+                    size = size
                 )
             } else null
         } else null
@@ -113,7 +112,7 @@ fun EditorView(
                 when (config.executionMode) {
                     ExecutionMode.SSH -> {
                         val result = SshConnection.listDirectory(config, currentPath)
-                        result.sortedByDescending { it.isDirectory }.thenBy { it.name }
+                        result.sortedWith(compareByDescending<WorkspaceFile> { it.isDirectory }.thenBy { it.name })
                     }
                     ExecutionMode.TERMUX_SERVICE -> {
                         val result = TermuxRunner.executeCommand(context, "ls -la \"$currentPath\"", config.workspacePath)
