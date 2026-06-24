@@ -143,7 +143,7 @@ fun SettingsView(
                     isInstalling = true
                     installLog = emptyList()
                     scope.launch {
-                        runInstaller(context, config.workspacePath) { step, log ->
+                        runInstaller(context, config.workspacePath) { log ->
                             installLog = installLog + log
                         }
                         isInstalling = false
@@ -556,7 +556,8 @@ private suspend fun saveOpenClaudeProfile(
     val envExports = buildString {
         provider.envVars.forEach { envVar ->
             val (name, value) = if (envVar.contains("=")) {
-                envVar.split("=", limit = 2)
+                val parts = envVar.split("=", limit = 2)
+                parts[0] to parts[1]
             } else {
                 envVar to apiKey
             }
