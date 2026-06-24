@@ -180,7 +180,7 @@ class MainActivity : ComponentActivity() {
                                                 .padding(vertical = 8.dp, horizontal = 8.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(Icons.Outlined.ChatBubbleOutline, null, tint = TerminalGray, modifier = Modifier.size(16.dp))
+                                            Icon(Icons.Default.Chat, null, tint = TerminalGray, modifier = Modifier.size(16.dp))
                                             Spacer(Modifier.width(8.dp))
                                             Text(session.title, fontSize = 13.sp, color = TerminalWhite.copy(alpha = 0.8f), maxLines = 1)
                                         }
