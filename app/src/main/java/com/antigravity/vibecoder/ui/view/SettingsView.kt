@@ -265,7 +265,7 @@ fun SettingsView(
                         Spacer(modifier = Modifier.width(4.dp))
                         Column {
                             Text("Direct Termux Service", color = TerminalWhite, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            Text("Runs CLI via Termux IPC. Requires opencode CLI installed.", color = TerminalGray, fontSize = 11.sp)
+                            Text("Runs CLI via Termux IPC. Requires claude CLI installed.", color = TerminalGray, fontSize = 11.sp)
                         }
                     }
 

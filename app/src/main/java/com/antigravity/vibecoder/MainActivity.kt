@@ -106,10 +106,10 @@ class MainActivity : ComponentActivity() {
                 }
 
                 var apiKey by remember { mutableStateOf(sharedPreferences.safeGetString("api_key", "")) }
-                var baseUrl by remember { mutableStateOf(sharedPreferences.safeGetString("base_url", "https://opencode.ai/zen/v1")) }
-                var modelName by remember { mutableStateOf(sharedPreferences.safeGetString("model_name", "opencode/zen-coder-1")) }
-                var executionModeStr by remember { mutableStateOf(sharedPreferences.safeGetString("execution_mode", ExecutionMode.SANDBOX.name)) }
-                val executionMode = try { ExecutionMode.valueOf(executionModeStr) } catch (e: Exception) { ExecutionMode.SANDBOX }
+                var baseUrl by remember { mutableStateOf(sharedPreferences.safeGetString("base_url", com.antigravity.vibecoder.data.Provider.OPENAI.defaultBaseUrl)) }
+                var modelName by remember { mutableStateOf(sharedPreferences.safeGetString("model_name", com.antigravity.vibecoder.data.Provider.OPENAI.defaultModel)) }
+                var executionModeStr by remember { mutableStateOf(sharedPreferences.safeGetString("execution_mode", ExecutionMode.OPENCLAUDE.name)) }
+                val executionMode = try { ExecutionMode.valueOf(executionModeStr) } catch (e: Exception) { ExecutionMode.OPENCLAUDE }
                 var sshHost by remember { mutableStateOf(sharedPreferences.safeGetString("ssh_host", "127.0.0.1")) }
                 var sshPort by remember { mutableStateOf(sharedPreferences.safeGetInt("ssh_port", 8022)) }
                 var sshUser by remember { mutableStateOf(sharedPreferences.safeGetString("ssh_user", "android")) }
@@ -270,10 +270,10 @@ class MainActivity : ComponentActivity() {
                                 menuItem("Settings", Icons.Default.Settings, Screen.SETTINGS)
                                 
                                 Spacer(Modifier.height(16.dp))
-                                Text("Open Code CLI", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TerminalWhite.copy(alpha=0.7f), modifier = Modifier.padding(bottom = 8.dp))
+                                Text("OpenClaude CLI", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TerminalWhite.copy(alpha=0.7f), modifier = Modifier.padding(bottom = 8.dp))
                                 
                                 val comingSoon = { title: String -> 
-                                    Toast.makeText(applicationContext, "$title: Manage via OpenCode CLI in Terminal", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(applicationContext, "$title: Manage via OpenClaude CLI in Terminal", Toast.LENGTH_SHORT).show()
                                     coroutineScope.launch { drawerState.close() }
                                 }
                                 

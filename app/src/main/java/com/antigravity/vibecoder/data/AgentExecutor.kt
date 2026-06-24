@@ -5,7 +5,6 @@ import com.antigravity.vibecoder.model.ChatMessage
 import com.antigravity.vibecoder.model.ConnectionConfig
 import com.antigravity.vibecoder.model.ExecutionMode
 import com.antigravity.vibecoder.model.MessageType
-import com.antigravity.vibecoder.model.WorkspaceFile
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.File
@@ -77,7 +76,7 @@ class AgentExecutor(private val context: Context) {
                         )
                     }
                     ExecutionMode.TERMUX_SERVICE -> {
-                        val result = executeWithTermux(prompt)
+                        val result = executeWithTermux(prompt, config)
                         result.fold(
                             onSuccess = { responseContent.append(it) },
                             onFailure = { responseContent.append("Error: ${it.message}") }
@@ -212,30 +211,22 @@ class AgentExecutor(private val context: Context) {
         return client.sendMessage(listOf(ZenMessage("user", prompt)))
     }
 
-    private suspend fun executeWithTermux(prompt: String): Result<String> {
-        val runner = TermuxRunner()
-        val result = runner.executeCommand("echo '${prompt.sq()}' | claude --print")
-        return result.map { it.output }
+    private suspend fun executeWithTermux(prompt: String, config: ConnectionConfig): Result<String> {
+        val result = TermuxRunner.executeCommand(context, "echo '${prompt.sq()}' | claude --print", config.workspacePath)
+        return if (result.error == null && result.stderr.isBlank()) {
+            Result.success(result.stdout)
+        } else {
+            Result.failure(Exception(result.error ?: result.stderr.ifBlank { "Command failed with exit code ${result.exitCode}" }))
+        }
     }
 
     private suspend fun executeWithSsh(prompt: String, config: ConnectionConfig): Result<String> {
-        val sshConfig = ConnectionConfig(
-            executionMode = ExecutionMode.SSH,
-            host = config.host,
-            user = config.user,
-            authType = config.authType,
-            passwordKey = config.passwordKey
-        )
-        val connection = SshConnection(sshConfig)
-        val connectResult = connection.connect()
-        return connectResult.fold(
-            onSuccess = {
-                val sshResult = connection.executeCommand("echo '${prompt.sq()}' | opencode --print")
-                connection.disconnect()
-                sshResult.map { it.output }
-            },
-            onFailure = { Result.failure(it) }
-        )
+        return try {
+            val sshResult = SshConnection.executeCommand(config, "echo '${prompt.sq()}' | claude --print")
+            Result.success(sshResult)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     private fun saveCurrentChat(firstPrompt: String) {
