@@ -1,41 +1,47 @@
 package com.antigravity.vibecoder.data
 
-import io.grpc.*
-import io.grpc.okhttp.OkHttpChannelBuilder
-import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
-import openclaude.v1.AgentServiceGrpcKt
-import openclaude.v1.OpenClaudeProto
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import java.io.BufferedReader
+import java.io.IOException
 import java.util.concurrent.TimeUnit
+
+@Serializable
+data class OpenClaudeRequest(val message: String, val working_directory: String, val model: String? = null, val session_id: String? = null)
+
+@Serializable
+data class OpenClaudeEvent(val event: String, val data: String)
 
 class OpenClaudeGrpcClient(
     private val host: String = "127.0.0.1",
     private val port: Int = 50051
 ) {
-    private var channel: ManagedChannel? = null
-    private var stub: AgentServiceGrpcKt.AgentServiceCoroutineStub? = null
+    private var client: OkHttpClient? = null
+    private var connected = false
 
     fun connect() {
-        channel = OkHttpChannelBuilder
-            .forAddress(host, port)
-            .usePlaintext()
-            .keepAliveTime(30, TimeUnit.SECONDS)
-            .keepAliveTimeout(10, TimeUnit.SECONDS)
+        client = OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.SECONDS) // No timeout for streaming
             .build()
-        stub = AgentServiceGrpcKt.AgentServiceCoroutineStub(channel!!)
+        connected = true
     }
 
     fun disconnect() {
-        channel?.shutdown()
-        try {
-            channel?.awaitTermination(5, TimeUnit.SECONDS)
-        } catch (_: Exception) {}
-        channel = null
-        stub = null
+        client?.dispatcher?.executorService?.shutdown()
+        client = null
+        connected = false
     }
 
-    fun isConnected(): Boolean = channel != null && !channel?.isShutdown!!
+    fun isConnected(): Boolean = connected
 
     fun chat(
         message: String,
@@ -43,82 +49,95 @@ class OpenClaudeGrpcClient(
         model: String? = null,
         sessionId: String = ""
     ): Flow<ChatEvent> = callbackFlow {
-        val currentStub = stub ?: throw IllegalStateException("Not connected to OpenClaude")
+        val currentClient = client ?: throw IllegalStateException("Not connected to OpenClaude")
+        val json = Json { ignoreUnknownKeys = true }
 
-        val requestFlow = flow {
-            // Send initial chat request
-            emit(OpenClaudeProto.ClientMessage.newBuilder().apply {
-                requestBuilder = OpenClaudeProto.ChatRequest.newBuilder()
-                    .setMessage(message)
-                    .setWorkingDirectory(workingDirectory)
-                    .apply {
-                        if (!model.isNullOrBlank()) setModel(model)
-                        if (sessionId.isNotBlank()) setSessionId(sessionId)
-                    }
-                    .build()
-            }.build())
-        }
+        val request = OpenClaudeRequest(
+            message = message,
+            working_directory = workingDirectory,
+            model = model,
+            session_id = sessionId.ifBlank { null }
+        )
+
+        val jsonBody = json.encodeToString(request)
+        val mediaType = "application/json; charset=utf-8".toMediaType()
+        val body = jsonBody.toRequestBody(mediaType)
+
+        val httpRequest = Request.Builder()
+            .url("http://$host:$port/chat")
+            .post(body)
+            .addHeader("Accept", "text/event-stream")
+            .build()
 
         try {
-            val responseStream = currentStub.chat(requestFlow)
-            responseStream.collect { serverMessage ->
-                when (serverMessage.eventCase) {
-                    OpenClaudeProto.ServerMessage.EventCase.TEXT_CHUNK -> {
-                        send(ChatEvent.TextChunk(serverMessage.textChunk.text))
-                    }
-                    OpenClaudeProto.ServerMessage.EventCase.TOOL_START -> {
-                        send(ChatEvent.ToolStarted(
-                            toolName = serverMessage.toolStart.toolName,
-                            argumentsJson = serverMessage.toolStart.argumentsJson,
-                            toolUseId = serverMessage.toolStart.toolUseId
-                        ))
-                    }
-                    OpenClaudeProto.ServerMessage.EventCase.TOOL_RESULT -> {
-                        send(ChatEvent.ToolResult(
-                            toolName = serverMessage.toolResult.toolName,
-                            output = serverMessage.toolResult.output,
-                            isError = serverMessage.toolResult.isError,
-                            toolUseId = serverMessage.toolResult.toolUseId
-                        ))
-                    }
-                    OpenClaudeProto.ServerMessage.EventCase.ACTION_REQUIRED -> {
-                        send(ChatEvent.ActionRequired(
-                            promptId = serverMessage.actionRequired.promptId,
-                            question = serverMessage.actionRequired.question,
-                            type = when (serverMessage.actionRequired.type) {
-                                OpenClaudeProto.ActionRequired.ActionType.CONFIRM_COMMAND -> ActionType.CONFIRM_COMMAND
-                                OpenClaudeProto.ActionRequired.ActionType.REQUEST_INFORMATION -> ActionType.REQUEST_INFORMATION
-                                else -> ActionType.CONFIRM_COMMAND
+            val response = currentClient.newCall(httpRequest).execute()
+            if (!response.isSuccessful) {
+                send(ChatEvent.Error("HTTP ${response.code}: ${response.message}", "HTTP_ERROR"))
+                return@callbackFlow
+            }
+
+            val reader = response.body?.source()?.buffer()?.inputStream()?.bufferedReader()
+                ?: throw IOException("No response body")
+
+            reader.use { br ->
+                var eventType = ""
+                while (true) {
+                    val line = br.readLine() ?: break
+                    when {
+                        line.startsWith("event: ") -> eventType = line.removePrefix("event: ").trim()
+                        line.startsWith("data: ") -> {
+                            val data = line.removePrefix("data: ").trim()
+                            if (data == "[DONE]") break
+
+                            when (eventType) {
+                                "text_chunk" -> send(ChatEvent.TextChunk(data))
+                                "tool_start" -> {
+                                    try {
+                                        val toolEvent = json.decodeFromString<ToolStartEvent>(data)
+                                        send(ChatEvent.ToolStarted(toolEvent.tool_name, toolEvent.arguments_json, toolEvent.tool_use_id))
+                                    } catch (_: Exception) {
+                                        send(ChatEvent.TextChunk("\n\nUsing tool: $data"))
+                                    }
+                                }
+                                "tool_result" -> {
+                                    try {
+                                        val resultEvent = json.decodeFromString<ToolResultEvent>(data)
+                                        send(ChatEvent.ToolResult(resultEvent.tool_name, resultEvent.output, resultEvent.is_error, resultEvent.tool_use_id))
+                                    } catch (_: Exception) {}
+                                }
+                                "action_required" -> {
+                                    try {
+                                        val actionEvent = json.decodeFromString<ActionEvent>(data)
+                                        send(ChatEvent.ActionRequired(actionEvent.prompt_id, actionEvent.question, ActionType.CONFIRM_COMMAND))
+                                    } catch (_: Exception) {}
+                                }
+                                "done" -> {
+                                    send(ChatEvent.Done(data, 0, 0))
+                                }
+                                "error" -> {
+                                    send(ChatEvent.Error(data, "AGENT_ERROR"))
+                                }
                             }
-                        ))
+                        }
+                        line.isBlank() -> {
+                            // Empty line separates events in SSE
+                        }
                     }
-                    OpenClaudeProto.ServerMessage.EventCase.DONE -> {
-                        send(ChatEvent.Done(
-                            fullText = serverMessage.done.fullText,
-                            promptTokens = serverMessage.done.promptTokens,
-                            completionTokens = serverMessage.done.completionTokens
-                        ))
-                    }
-                    OpenClaudeProto.ServerMessage.EventCase.ERROR -> {
-                        send(ChatEvent.Error(
-                            message = serverMessage.error.message,
-                            code = serverMessage.error.code
-                        ))
-                    }
-                    OpenClaudeProto.ServerMessage.EventCase.EVENT_NOT_SET -> {}
                 }
             }
         } catch (e: Exception) {
-            send(ChatEvent.Error(e.message ?: "Unknown gRPC error", "GRPC_ERROR"))
+            send(ChatEvent.Error(e.message ?: "Connection error", "CONNECTION_ERROR"))
         }
 
         awaitClose()
     }
 
-    suspend fun sendInput(stub: AgentServiceGrpcKt.AgentServiceCoroutineStub, promptId: String, reply: String) {
-        // For sending responses to action required prompts, we'd need a persistent stream
-        // This is handled at a higher level with session management
-    }
+    @Serializable
+    private data class ToolStartEvent(val tool_name: String, val arguments_json: String, val tool_use_id: String)
+    @Serializable
+    private data class ToolResultEvent(val tool_name: String, val output: String, val is_error: Boolean, val tool_use_id: String)
+    @Serializable
+    private data class ActionEvent(val prompt_id: String, val question: String)
 }
 
 sealed class ChatEvent {

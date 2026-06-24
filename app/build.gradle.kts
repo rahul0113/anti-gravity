@@ -57,28 +57,6 @@ android {
     }
 }
 
-protobuf {
-    protoc {
-        artifact = "com.google.protobuf:protoc:3.25.1"
-    }
-    plugins {
-        create("grpc") {
-            artifact = "io.grpc:protoc-gen-grpc-java:1.62.2"
-        }
-        create("kotlin") {
-            artifact = "org.jetbrains.kotlin:protoc-gen-kotlin:1.9.24"
-        }
-    }
-    generateProtoTasks {
-        all().forEach { task ->
-            task.plugins {
-                create("grpc") { }
-                create("kotlin") { }
-            }
-        }
-    }
-}
-
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
@@ -105,12 +83,8 @@ dependencies {
     implementation("androidx.concurrent:concurrent-futures-ktx:1.1.0")
 
     // gRPC for OpenClaude integration
-    implementation("io.grpc:grpc-okhttp:1.62.2")
-    implementation("io.grpc:grpc-protobuf:1.62.2")
-    implementation("io.grpc:grpc-stub:1.62.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-    compileOnly("org.apache.tomcat:annotations-api:6.0.53")
 
     // Testing — plain JVM unit tests (no Robolectric, no Compose UI test runtime needed)
     testImplementation("junit:junit:4.13.2")
