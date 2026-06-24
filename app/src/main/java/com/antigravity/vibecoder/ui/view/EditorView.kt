@@ -152,27 +152,6 @@ fun EditorView(
         }
     }
 
-    fun parseTermuxLaOutput(stdout: String, basePath: String): List<FileItem> {
-        return stdout.lines().mapNotNull { line ->
-            // Parse `ls -la` output: permissions links owner size date name
-            val parts = line.trim().split("\\s+".toRegex())
-            if (parts.size >= 8) {
-                val perms = parts[0]
-                val size = parts[4].toLongOrNull() ?: 0L
-                val name = parts.drop(7).joinToString(" ")
-                if (name == "." || name == "..") return@mapNotNull null
-                val fullPath = if (basePath.endsWith("/")) "$basePath$name" else "$basePath/$name"
-                FileItem(
-                    name = name,
-                    path = fullPath,
-                    isDirectory = perms.startsWith("d"),
-                    size = size,
-                    permissions = perms
-                )
-            } else null
-        }.sortedWith(compareByDescending<FileItem> { it.isDirectory }.thenBy { it.name.lowercase() })
-    }
-
     fun navigateTo(path: String) {
         currentPath = path
         selectedFile = null
@@ -986,6 +965,26 @@ private fun SmallButton(text: String, color: Color, onClick: () -> Unit) {
 // ─── Data classes ───
 data class TerminalEntry(val prompt: String, val command: String, val output: String = "")
 enum class SortMode { NAME, SIZE, DATE }
+
+private fun parseTermuxLaOutput(stdout: String, basePath: String): List<FileItem> {
+    return stdout.lines().mapNotNull { line ->
+        val parts = line.trim().split("\\s+".toRegex())
+        if (parts.size >= 8) {
+            val perms = parts[0]
+            val size = parts[4].toLongOrNull() ?: 0L
+            val name = parts.drop(7).joinToString(" ")
+            if (name == "." || name == "..") return@mapNotNull null
+            val fullPath = if (basePath.endsWith("/")) "$basePath$name" else "$basePath/$name"
+            FileItem(
+                name = name,
+                path = fullPath,
+                isDirectory = perms.startsWith("d"),
+                size = size,
+                permissions = perms
+            )
+        } else null
+    }.sortedWith(compareByDescending<FileItem> { it.isDirectory }.thenBy { it.name.lowercase() })
+}
 
 @Composable
 fun TerminalMessageItem(message: ChatMessage) {
