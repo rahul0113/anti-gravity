@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -120,11 +121,14 @@ class MainActivity : ComponentActivity() {
 
                 // ARCH-2 FIX: remember config so it isn't recreated on every recomposition,
                 // which was causing EditorView's LaunchedEffect to fire in an infinite loop
-                val config = remember(executionMode, sshHost, sshPort, sshUser, sshPass, sshWorkspace) {
+                val grpcPort by remember { mutableIntStateOf(sharedPreferences.safeGetInt("grpc_port", 50051)) }
+
+                val config = remember(executionMode, sshHost, sshPort, sshUser, sshPass, sshWorkspace, grpcPort) {
                     ConnectionConfig(
                         executionMode = executionMode,
                         host = sshHost,
                         port = sshPort,
+                        grpcPort = grpcPort,
                         user = sshUser,
                         passwordKey = sshPass,
                         workspacePath = sshWorkspace
@@ -377,11 +381,12 @@ class MainActivity : ComponentActivity() {
                             Screen.EDITOR -> EditorView(
                                 messages = messages,
                                 isProcessing = isProcessing,
+                                onSendPrompt = { sendPrompt(it) },
+                                onOpenDrawer = { coroutineScope.launch { drawerState.open() } },
                                 config = config,
-                                onSendPrompt = { sendPrompt(it); },
-                                onClearConsole = { agentExecutor.clearHistory() },
-                                onConfigChange = saveConfig,
-                                modifier = Modifier.fillMaxSize()
+                                apiKey = apiKey,
+                                baseUrl = baseUrl,
+                                modelName = modelName
                             )
                             Screen.PREVIEW -> PreviewView(url = previewUrl, modifier = Modifier.fillMaxSize())
                             Screen.SETTINGS -> SettingsView(
