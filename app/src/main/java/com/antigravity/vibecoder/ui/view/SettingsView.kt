@@ -22,14 +22,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.clickable
-import android.annotation.SuppressLint
-import android.webkit.JavascriptInterface
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.antigravity.vibecoder.model.ConnectionConfig
 import com.antigravity.vibecoder.model.ExecutionMode
+import com.antigravity.vibecoder.data.Provider
 import com.antigravity.vibecoder.ui.theme.*
 
 @Composable
@@ -45,71 +40,6 @@ fun SettingsView(
 ) {
     var isApiKeyVisible by remember { mutableStateOf(false) }
     var isSshPasswordVisible by remember { mutableStateOf(false) }
-    var showLoginWebView by remember { mutableStateOf(false) }
-
-    if (showLoginWebView) {
-        Dialog(
-            onDismissRequest = { showLoginWebView = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Box(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().background(DarkSurface).padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Open Code Zen Login", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text("Close", color = Color(0xFFE56A30), modifier = Modifier.clickable { showLoginWebView = false }, fontWeight = FontWeight.Bold)
-                    }
-                    
-                    @SuppressLint("SetJavaScriptEnabled")
-                    class JSBridge {
-                        @JavascriptInterface
-                        fun onApiKeyFound(key: String) {
-                            // This might be called from a background thread
-                            onApiKeyChange(key)
-                            showLoginWebView = false
-                        }
-                    }
-
-                    androidx.compose.ui.viewinterop.AndroidView(
-                        factory = { ctx ->
-                            WebView(ctx).apply {
-                                settings.javaScriptEnabled = true
-                                settings.domStorageEnabled = true
-                                addJavascriptInterface(JSBridge(), "AndroidInterface")
-                                
-                                webViewClient = object : WebViewClient() {
-                                    override fun onPageFinished(view: WebView?, url: String?) {
-                                        super.onPageFinished(view, url)
-                                        val js = """
-                                            setInterval(function() {
-                                                var text = document.body.innerText;
-                                                var match = text.match(/AQ\.[A-Za-z0-9_-]{30,}/);
-                                                if (match) {
-                                                    AndroidInterface.onApiKeyFound(match[0]);
-                                                }
-                                                var inputs = document.querySelectorAll('input');
-                                                for(var i=0; i<inputs.length; i++) {
-                                                    if(inputs[i].value && inputs[i].value.startsWith('AQ.')) {
-                                                        AndroidInterface.onApiKeyFound(inputs[i].value);
-                                                    }
-                                                }
-                                            }, 1000);
-                                        """.trimIndent()
-                                        view?.evaluateJavascript(js, null)
-                                    }
-                                }
-                                loadUrl("https://opencode.ai/login")
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-            }
-        }
-    }
 
     Column(
         modifier = Modifier
@@ -126,7 +56,7 @@ fun SettingsView(
             fontWeight = FontWeight.Bold
         )
 
-        // API Section
+        // OpenClaude Section
         Card(
             modifier = Modifier.fillMaxWidth().glassPanel(shape = RoundedCornerShape(16.dp), alpha = 0.05f),
             colors = CardDefaults.cardColors(containerColor = Color.Transparent)
@@ -135,22 +65,17 @@ fun SettingsView(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("--- OPENCODE ZEN API CONFIG ---", color = Color.White.copy(alpha=0.7f), fontWeight = FontWeight.Bold, fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif)
+                Text("--- OPENCLAUDE AGENT CONFIG ---", color = Color.White.copy(alpha=0.7f), fontWeight = FontWeight.Bold, fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif)
 
+                // OpenClaude gRPC Port
                 OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = onApiKeyChange,
-                    label = { Text("Zen API Key", color = TerminalGray) },
-                    visualTransformation = if (isApiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        IconButton(onClick = { isApiKeyVisible = !isApiKeyVisible }) {
-                            Icon(
-                                imageVector = if (isApiKeyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                contentDescription = "Toggle API Key visibility",
-                                tint = TerminalGreen
-                            )
-                        }
+                    value = config.grpcPort.toString(),
+                    onValueChange = {
+                        val port = it.toIntOrNull() ?: 50051
+                        onConfigChange(config.copy(grpcPort = port))
                     },
+                    label = { Text("OpenClaude gRPC Port", color = TerminalGray) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = TerminalGreen,
@@ -160,15 +85,89 @@ fun SettingsView(
                     )
                 )
 
-                Button(
-                    onClick = { showLoginWebView = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE56A30)),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth().height(48.dp)
-                ) {
-                    Text("Auto-Login with Open Code Zen", color = Color.White, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "* OpenClaude runs as a gRPC server on localhost. Install it via: npm install -g @anthropic-ai/claude-code",
+                    color = TerminalAmber,
+                    fontSize = 11.sp
+                )
+
+                Text(
+                    text = "* Start the server: claude --grpc-port ${config.grpcPort}",
+                    color = TerminalAmber,
+                    fontSize = 11.sp
+                )
+            }
+        }
+
+        // API / Provider Section
+        Card(
+            modifier = Modifier.fillMaxWidth().glassPanel(shape = RoundedCornerShape(16.dp), alpha = 0.05f),
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("--- AI PROVIDER CONFIG ---", color = Color.White.copy(alpha=0.7f), fontWeight = FontWeight.Bold, fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif)
+
+                // Provider Selection
+                Text("Select Provider:", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Provider.entries.filter { it != Provider.OPENCLAUDE }.forEach { provider ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onBaseUrlChange(provider.defaultBaseUrl)
+                                    onModelNameChange(provider.defaultModel)
+                                }
+                        ) {
+                            RadioButton(
+                                selected = baseUrl == provider.defaultBaseUrl,
+                                onClick = {
+                                    onBaseUrlChange(provider.defaultBaseUrl)
+                                    onModelNameChange(provider.defaultModel)
+                                },
+                                colors = RadioButtonDefaults.colors(selectedColor = TerminalGreen)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Column {
+                                Text(provider.displayName, color = TerminalWhite, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text(provider.defaultModel, color = TerminalGray, fontSize = 11.sp)
+                            }
+                        }
+                    }
                 }
 
+                // API Key (skip for Ollama)
+                if (!baseUrl.contains("localhost")) {
+                    OutlinedTextField(
+                        value = apiKey,
+                        onValueChange = onApiKeyChange,
+                        label = { Text("API Key", color = TerminalGray) },
+                        visualTransformation = if (isApiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { isApiKeyVisible = !isApiKeyVisible }) {
+                                Icon(
+                                    imageVector = if (isApiKeyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                    contentDescription = "Toggle API Key visibility",
+                                    tint = TerminalGreen
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = TerminalGreen,
+                            unfocusedBorderColor = DarkBorder,
+                            focusedTextColor = TerminalWhite,
+                            unfocusedTextColor = TerminalWhite
+                        )
+                    )
+                }
+
+                // Base URL
                 OutlinedTextField(
                     value = baseUrl,
                     onValueChange = onBaseUrlChange,
@@ -182,59 +181,20 @@ fun SettingsView(
                     )
                 )
 
-                var expanded by remember { mutableStateOf(false) }
-                var availableModels by remember { mutableStateOf<List<String>>(emptyList()) }
-                var isLoadingModels by remember { mutableStateOf(false) }
-
-                LaunchedEffect(apiKey, baseUrl) {
-                    if (apiKey.isNotEmpty() && baseUrl.isNotEmpty()) {
-                        isLoadingModels = true
-                        val result = com.antigravity.vibecoder.data.ZenApiClient.getAvailableModels(apiKey, baseUrl)
-                        result.onSuccess { models ->
-                            availableModels = models
-                        }
-                        isLoadingModels = false
-                    }
-                }
-
-                @OptIn(ExperimentalMaterial3Api::class)
-                ExposedDropdownMenuBox(
-                    expanded = expanded,
-                    onExpandedChange = { expanded = it }
-                ) {
-                    OutlinedTextField(
-                        value = modelName,
-                        onValueChange = onModelNameChange,
-                        label = { Text(if (isLoadingModels) "Fetching models..." else "Model Name", color = TerminalGray) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor(),
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color.White.copy(alpha=0.5f),
-                            unfocusedBorderColor = Color.White.copy(alpha=0.2f),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            cursorColor = Color.White
-                        )
+                // Model
+                OutlinedTextField(
+                    value = modelName,
+                    onValueChange = onModelNameChange,
+                    label = { Text("Model Name", color = TerminalGray) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.White.copy(alpha=0.5f),
+                        unfocusedBorderColor = Color.White.copy(alpha=0.2f),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        cursorColor = Color.White
                     )
-                    
-                    if (availableModels.isNotEmpty()) {
-                        ExposedDropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false },
-                            modifier = Modifier.background(DarkSurface).border(1.dp, DarkBorder, RoundedCornerShape(4.dp))
-                        ) {
-                            availableModels.forEach { model ->
-                                DropdownMenuItem(
-                                    text = { Text(model, color = TerminalWhite) },
-                                    onClick = {
-                                        onModelNameChange(model)
-                                        expanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
+                )
             }
         }
 
@@ -252,6 +212,25 @@ fun SettingsView(
                 Text("Select Execution Mode:", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // OpenClaude Option (NEW - Primary)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onConfigChange(config.copy(executionMode = ExecutionMode.OPENCLAUDE)) }
+                    ) {
+                        RadioButton(
+                            selected = config.executionMode == ExecutionMode.OPENCLAUDE,
+                            onClick = { onConfigChange(config.copy(executionMode = ExecutionMode.OPENCLAUDE)) },
+                            colors = RadioButtonDefaults.colors(selectedColor = TerminalGreen)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Column {
+                            Text("OpenClaude Agent (Recommended)", color = TerminalGreen, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("Full agent with tool calling, file editing, bash, and 200+ model support.", color = TerminalGray, fontSize = 11.sp)
+                        }
+                    }
+
                     // Sandbox Option
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -267,7 +246,7 @@ fun SettingsView(
                         Spacer(modifier = Modifier.width(4.dp))
                         Column {
                             Text("Local Sandbox", color = TerminalWhite, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            Text("Secure, runs within the app's internal sandbox storage.", color = TerminalGray, fontSize = 11.sp)
+                            Text("Simple chat via API. No file tools, no agent capabilities.", color = TerminalGray, fontSize = 11.sp)
                         }
                     }
 
@@ -285,8 +264,8 @@ fun SettingsView(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Column {
-                            Text("Direct Termux Service (Fastest)", color = TerminalGreen, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            Text("Natively links to Termux via background IPC service (zero-delay).", color = TerminalGray, fontSize = 11.sp)
+                            Text("Direct Termux Service", color = TerminalWhite, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("Runs CLI via Termux IPC. Requires opencode CLI installed.", color = TerminalGray, fontSize = 11.sp)
                         }
                     }
 
@@ -305,7 +284,7 @@ fun SettingsView(
                         Spacer(modifier = Modifier.width(4.dp))
                         Column {
                             Text("SSH Server Terminal", color = TerminalWhite, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            Text("Connects over SSH socket (for remote dev boxes or local termux sshd).", color = TerminalGray, fontSize = 11.sp)
+                            Text("Connects over SSH to remote dev boxes or local termux sshd.", color = TerminalGray, fontSize = 11.sp)
                         }
                     }
                 }
@@ -371,12 +350,13 @@ fun SettingsView(
                         cursorColor = Color.White
                     )
                 )
-                
+
                 Text(
                     text = when (config.executionMode) {
+                        ExecutionMode.OPENCLAUDE -> "* Routes through OpenClaude gRPC agent on port ${config.grpcPort}. Supports file tools, bash, grep, and 200+ models."
                         ExecutionMode.TERMUX_SERVICE -> "* Runs direct CLI sessions using Termux RUN_COMMAND intents."
-                        ExecutionMode.SSH -> "* Uses SSH credentials to connect to Termux's local sshd server or remote server."
-                        ExecutionMode.SANDBOX -> "* Runs within the app's internal private sandbox space (/data/data/com.antigravity.vibecoder/files/workspace)."
+                        ExecutionMode.SSH -> "* Uses SSH credentials to connect to a remote server."
+                        ExecutionMode.SANDBOX -> "* Simple API chat only. No agent tools."
                     },
                     color = TerminalAmber,
                     fontSize = 11.sp

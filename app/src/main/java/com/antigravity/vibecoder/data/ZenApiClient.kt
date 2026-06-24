@@ -19,7 +19,8 @@ data class ZenMessage(val role: String, val content: String)
 data class ZenRequest(
     val model: String,
     val messages: List<ZenMessage>,
-    val temperature: Double = 0.2
+    val temperature: Double = 0.2,
+    val stream: Boolean = false
 )
 
 @Serializable
@@ -38,10 +39,23 @@ data class ZenModel(val id: String)
 @Serializable
 data class ZenModelsResponse(val data: List<ZenModel>)
 
+enum class Provider(
+    val displayName: String,
+    val defaultBaseUrl: String,
+    val defaultModel: String
+) {
+    OPENAI("OpenAI", "https://api.openai.com/v1", "gpt-4o"),
+    GEMINI("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash"),
+    DEEPSEEK("DeepSeek", "https://api.deepseek.com/v1", "deepseek-chat"),
+    GITHUB_MODELS("GitHub Models", "https://models.inference.ai.azure.com", "gpt-4o"),
+    OLLAMA("Ollama (Local)", "http://localhost:11434/v1", "llama3.2"),
+    OPENCLAUDE("OpenClaude (gRPC)", "", "")
+}
+
 class ZenApiClient(
     private val apiKey: String,
-    private val baseUrl: String = "https://opencode.ai/zen/v1",
-    private val model: String = "opencode/zen-coder-1"
+    private val baseUrl: String = Provider.OPENAI.defaultBaseUrl,
+    private val model: String = Provider.OPENAI.defaultModel
 ) {
     companion object {
         private val client = OkHttpClient.Builder()
@@ -61,13 +75,13 @@ class ZenApiClient(
                 .build()
 
             try {
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        return@withContext Result.failure(IOException("Failed to fetch models: Code ${response.code}"))
-                    }
-                    val responseBodyStr = response.body?.string() ?: return@withContext Result.failure(IOException("Empty response body"))
-                    val parsed = json.decodeFromString<ZenModelsResponse>(responseBodyStr)
-                    Result.success(parsed.data.map { it.id })
+                val response = client.newCall(request).execute()
+                val body = response.body?.string() ?: throw IOException("Empty response")
+                if (response.isSuccessful) {
+                    val modelsResponse = json.decodeFromString<ZenModelsResponse>(body)
+                    Result.success(modelsResponse.data.map { it.id })
+                } else {
+                    Result.failure(Exception("HTTP ${response.code}: $body"))
                 }
             } catch (e: Exception) {
                 Result.failure(e)
@@ -75,36 +89,39 @@ class ZenApiClient(
         }
     }
 
-    suspend fun getCompletion(messages: List<ZenMessage>): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun sendMessage(
+        messages: List<ZenMessage>,
+        modelOverride: String? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
         val requestBody = ZenRequest(
-            model = model,
-            messages = messages,
-            temperature = 0.2
+            model = modelOverride ?: model,
+            messages = messages
         )
-        
+
+        val jsonBody = json.encodeToString(requestBody)
         val mediaType = "application/json; charset=utf-8".toMediaType()
-        val bodyStr = json.encodeToString(requestBody)
-        
+        val body = jsonBody.toRequestBody(mediaType)
+
         val request = Request.Builder()
             .url("$baseUrl/chat/completions")
-            .post(bodyStr.toRequestBody(mediaType))
+            .post(body)
             .addHeader("Authorization", "Bearer $apiKey")
             .addHeader("Content-Type", "application/json")
+            .addHeader("HTTP-Referer", "https://anti-gravity.app")
+            .addHeader("X-Title", "Anti-Gravity Vibe Coder")
             .build()
 
         try {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    val errorBody = response.body?.string() ?: ""
-                    return@withContext Result.failure(IOException("API Error: Code ${response.code}. Response: $errorBody"))
-                }
-                
-                val responseBodyStr = response.body?.string() ?: return@withContext Result.failure(IOException("Empty response body"))
-                val parsed = json.decodeFromString<ZenResponse>(responseBodyStr)
-                val text = parsed.choices.firstOrNull()?.message?.content
-                    ?: return@withContext Result.failure(IOException("No completion options returned"))
-                
-                Result.success(text)
+            val response = client.newCall(request).execute()
+            val responseBody = response.body?.string() ?: throw IOException("Empty response body")
+
+            if (response.isSuccessful) {
+                val chatResponse = json.decodeFromString<ZenResponse>(responseBody)
+                val content = chatResponse.choices.firstOrNull()?.message?.content
+                    ?: throw IOException("No response content")
+                Result.success(content)
+            } else {
+                Result.failure(Exception("HTTP ${response.code}: $responseBody"))
             }
         } catch (e: Exception) {
             Result.failure(e)

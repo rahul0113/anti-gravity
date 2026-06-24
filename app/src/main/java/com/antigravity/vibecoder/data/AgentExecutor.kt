@@ -5,176 +5,268 @@ import com.antigravity.vibecoder.model.ChatMessage
 import com.antigravity.vibecoder.model.ConnectionConfig
 import com.antigravity.vibecoder.model.ExecutionMode
 import com.antigravity.vibecoder.model.MessageType
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.withTimeout
+import com.antigravity.vibecoder.model.WorkspaceFile
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
 import java.io.File
+import java.util.UUID
 
-data class ChatSession(val id: String, val title: String, val messages: List<ChatMessage>)
+data class ChatSession(
+    val id: String,
+    val title: String,
+    val messages: List<ChatMessage>,
+    val timestamp: Long
+)
 
 class AgentExecutor(private val context: Context) {
 
+    private val _isProcessing = MutableStateFlow(false)
+    val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
+
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
-    val messages: StateFlow<List<ChatMessage>> = _messages
+    val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
     private val _sessions = MutableStateFlow<List<ChatSession>>(emptyList())
-    val sessions: StateFlow<List<ChatSession>> = _sessions
+    val sessions: StateFlow<List<ChatSession>> = _sessions.asStateFlow()
 
-    private val _isProcessing = MutableStateFlow(false)
-    val isProcessing: StateFlow<Boolean> = _isProcessing
+    private var currentChatJob: Job? = null
+    private var grpcClient: OpenClaudeGrpcClient? = null
 
-    // B-4 FIX: Cache ZenApiClient so OkHttpClient connection pool is reused across messages
-    private var zenApiClient: ZenApiClient? = null
-    private var cachedApiKey = ""
-    private var cachedBaseUrl = ""
-    private var cachedModel = ""
-
-    private fun getZenClient(apiKey: String, baseUrl: String, model: String): ZenApiClient {
-        if (zenApiClient == null || apiKey != cachedApiKey || baseUrl != cachedBaseUrl || model != cachedModel) {
-            zenApiClient = ZenApiClient(apiKey, baseUrl, model)
-            cachedApiKey = apiKey
-            cachedBaseUrl = baseUrl
-            cachedModel = model
-        }
-        return zenApiClient!!
-    }
-
-    // C-5 FIX: StateFlow.update{} is atomic — prevents lost updates from concurrent addMessage calls
-    private fun addMessage(text: String, type: MessageType, sender: String = "System") {
-        _messages.update { current -> current + ChatMessage(sender = sender, text = text, type = type) }
-    }
-
-    fun clearHistory() {
-        if (_messages.value.isNotEmpty()) {
-            val title = _messages.value.firstOrNull { it.type == MessageType.USER }?.text?.take(30) ?: "Chat ${_sessions.value.size + 1}"
-            val newSession = ChatSession(
-                id = java.util.UUID.randomUUID().toString(),
-                title = title,
-                messages = _messages.value
-            )
-            _sessions.update { listOf(newSession) + it.take(10) }
-        }
-        _messages.value = emptyList()
-    }
-
-    fun loadSession(session: ChatSession) {
-        if (_messages.value.isNotEmpty() && _messages.value != session.messages) {
-            val title = _messages.value.firstOrNull { it.type == MessageType.USER }?.text?.take(30) ?: "Chat ${_sessions.value.size + 1}"
-            val currentSession = ChatSession(
-                id = java.util.UUID.randomUUID().toString(),
-                title = title,
-                messages = _messages.value
-            )
-            _sessions.update { current -> (listOf(currentSession) + current).distinctBy { it.messages } }
-        }
-        _messages.value = session.messages
-    }
-
-    fun injectCrashLog(log: String) {
-        _messages.update { current ->
-            current + ChatMessage(
-                sender = "CrashReporter",
-                text = "⚠️ PREVIOUS SESSION CRASHED — Stack trace below:\n\n$log",
-                type = MessageType.SYSTEM_ERROR
-            )
-        }
-    }
-
-    private fun String.shellSingleQuote(): String = "'" + this.replace("'", "'\\''") + "'"
-
-    suspend fun executeUserPrompt(
+    fun executeUserPrompt(
         prompt: String,
         apiKey: String,
         baseUrl: String,
-        model: String,
+        modelName: String,
         config: ConnectionConfig
     ) {
-        if (!_isProcessing.compareAndSet(expect = false, update = true)) return
-        addMessage(prompt, MessageType.USER, "User")
+        if (prompt.isBlank() || _isProcessing.value) return
 
-        try {
-            // S-3 FIX: Top-level 120-second timeout guards all execution modes including SSH hangs
-            withTimeout(120_000L) {
+        _messages.update {
+            it + ChatMessage(
+                sender = "user",
+                text = prompt,
+                type = MessageType.USER,
+                timestamp = System.currentTimeMillis()
+            )
+        }
+        _isProcessing.value = true
+
+        currentChatJob = CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            try {
+                val responseContent = StringBuilder()
+
+                // Add empty agent message as placeholder
+                _messages.update {
+                    it + ChatMessage(
+                        sender = "agent",
+                        text = "",
+                        type = MessageType.AGENT_RESPONSE,
+                        timestamp = System.currentTimeMillis()
+                    )
+                }
+
                 when (config.executionMode) {
-                    ExecutionMode.TERMUX_SERVICE -> {
-                        // B-5 FIX: Guard missing API key for non-SANDBOX modes explicitly
-                        if (apiKey.isEmpty()) {
-                            addMessage("No API key set. Please go to SETTINGS first.", MessageType.SYSTEM_ERROR)
-                            return@withTimeout
-                        }
-                        addMessage("Executing opencode CLI via Termux IPC...", MessageType.AGENT_THOUGHT, "System")
-
-                        // O-7 & P-2 FIX: Single combined command — passed directly via exports without temp file
-                        // Secure: variables are inline, no risk of leaving a file in /data/local/tmp
-                        val combinedCmd = buildString {
-                            append("export OPENCODE_API_KEY=${apiKey.shellSingleQuote()} && ")
-                            append("export OPENCODE_BASE_URL=${baseUrl.shellSingleQuote()} && ")
-                            append("export OPENCODE_MODEL=${model.shellSingleQuote()} && ")
-                            append("cd ${config.workspacePath.shellSingleQuote()} && ")
-                            append("opencode run ${prompt.shellSingleQuote()}")
-                        }
-                        val res = TermuxRunner.executeCommand(context, combinedCmd, config.workspacePath)
-                        handleTermuxResult(res)
+                    ExecutionMode.OPENCLAUDE -> {
+                        executeWithOpenClaude(prompt, config, modelName, responseContent)
                     }
-
-                    ExecutionMode.SSH -> {
-                        if (apiKey.isEmpty()) {
-                            addMessage("No API key set. Please go to SETTINGS first.", MessageType.SYSTEM_ERROR)
-                            return@withTimeout
-                        }
-                        addMessage("Executing opencode CLI via SSH...", MessageType.AGENT_THOUGHT, "System")
-                        // B-2 FIX: Include OPENCODE_BASE_URL and OPENCODE_MODEL for SSH mode
-                        val sshCommand = "cd ${config.workspacePath.shellSingleQuote()} && " +
-                            "OPENCODE_API_KEY=${apiKey.shellSingleQuote()} " +
-                            "OPENCODE_BASE_URL=${baseUrl.shellSingleQuote()} " +
-                            "OPENCODE_MODEL=${model.shellSingleQuote()} " +
-                            "opencode run ${prompt.shellSingleQuote()}"
-                        val output = SshConnection.executeCommand(config, sshCommand)
-                        addMessage(output, MessageType.TOOL_OUTPUT, "opencode")
-                    }
-
                     ExecutionMode.SANDBOX -> {
-                        if (apiKey.isEmpty()) {
-                            addMessage(
-                                "No API key configured. Go to SETTINGS → Zen API Key.",
-                                MessageType.SYSTEM_ERROR
-                            )
-                            return@withTimeout
-                        }
-                        addMessage("Calling OpenCode Zen API (Sandbox mode)...", MessageType.AGENT_THOUGHT, "System")
-                        val history = _messages.value
-                            .filter { it.type == MessageType.USER || it.type == MessageType.AGENT_RESPONSE }
-                            .map { ZenMessage(if (it.type == MessageType.USER) "user" else "assistant", it.text) }
-
-                        // B-4 FIX: Use cached client instead of creating a new one each call
-                        val client = getZenClient(apiKey, baseUrl, model)
-                        val result = client.getCompletion(history)
+                        val result = executeInSandbox(prompt, apiKey, baseUrl, modelName)
                         result.fold(
-                            onSuccess = { addMessage(it, MessageType.AGENT_RESPONSE, "Zen AI") },
-                            onFailure = { addMessage("API Error: ${it.message}", MessageType.SYSTEM_ERROR) }
+                            onSuccess = { responseContent.append(it) },
+                            onFailure = { responseContent.append("Error: ${it.message}") }
+                        )
+                    }
+                    ExecutionMode.TERMUX_SERVICE -> {
+                        val result = executeWithTermux(prompt)
+                        result.fold(
+                            onSuccess = { responseContent.append(it) },
+                            onFailure = { responseContent.append("Error: ${it.message}") }
+                        )
+                    }
+                    ExecutionMode.SSH -> {
+                        val result = executeWithSsh(prompt, config)
+                        result.fold(
+                            onSuccess = { responseContent.append(it) },
+                            onFailure = { responseContent.append("Error: ${it.message}") }
                         )
                     }
                 }
+
+                if (responseContent.isNotEmpty()) {
+                    val finalContent = responseContent.toString()
+                    updateLastAgentMessage(finalContent)
+                    saveCurrentChat(prompt)
+                }
+            } catch (e: CancellationException) {
+                val finalContent = responseContent.toString()
+                if (finalContent.isNotEmpty()) {
+                    updateLastAgentMessage(finalContent)
+                } else {
+                    // Remove empty agent placeholder
+                    _messages.update { messages ->
+                        val lastAgent = messages.indexOfLast { it.type == MessageType.AGENT_RESPONSE }
+                        if (lastAgent >= 0) messages.toMutableList().apply { removeAt(lastAgent) } else messages
+                    }
+                }
+            } catch (e: Exception) {
+                val errorMsg = ChatMessage(
+                    sender = "system",
+                    text = "Error: ${e.message ?: "Unknown error occurred"}",
+                    type = MessageType.SYSTEM_ERROR,
+                    timestamp = System.currentTimeMillis()
+                )
+                _messages.update { messages ->
+                    val cleaned = messages.dropLastWhile {
+                        it.type == MessageType.AGENT_RESPONSE && it.text.isEmpty()
+                    }
+                    cleaned + errorMsg
+                }
+            } finally {
+                _isProcessing.value = false
             }
-        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-            addMessage("Operation timed out after 120 seconds. Check your connection and try again.", MessageType.SYSTEM_ERROR)
-        } catch (e: Exception) {
-            addMessage("Unexpected error: ${e.message}", MessageType.SYSTEM_ERROR)
-        } finally {
-            _isProcessing.value = false
         }
     }
 
-    private fun handleTermuxResult(res: TermuxRunner.TermuxResult) {
-        if (res.error != null) {
-            addMessage(
-                "Termux Error: ${res.error}\nIs opencode installed? Run: pkg install opencode",
-                MessageType.SYSTEM_ERROR
-            )
-        } else {
-            if (res.stdout.isNotEmpty()) addMessage(res.stdout, MessageType.TOOL_OUTPUT, "opencode")
-            if (res.stderr.isNotEmpty()) addMessage(res.stderr, MessageType.SYSTEM_ERROR)
+    /** Update the last AGENT_RESPONSE message's text */
+    private fun updateLastAgentMessage(newText: String) {
+        _messages.update { messages ->
+            val lastIdx = messages.indexOfLast { it.type == MessageType.AGENT_RESPONSE }
+            if (lastIdx >= 0) {
+                messages.toMutableList().apply {
+                    set(lastIdx, this[lastIdx].copy(text = newText))
+                }
+            } else messages
         }
     }
+
+    private suspend fun executeWithOpenClaude(
+        prompt: String,
+        config: ConnectionConfig,
+        modelName: String,
+        responseContent: StringBuilder
+    ) {
+        if (grpcClient == null || !grpcClient!!.isConnected()) {
+            grpcClient = OpenClaudeGrpcClient(
+                host = "127.0.0.1",
+                port = config.grpcPort
+            )
+            grpcClient!!.connect()
+        }
+
+        val workDir = config.workspacePath.ifBlank {
+            "/data/data/com.termux/files/home"
+        }
+
+        grpcClient!!.chat(
+            message = prompt,
+            workingDirectory = workDir,
+            model = modelName.takeIf { it.isNotBlank() }
+        ).collect { event ->
+            when (event) {
+                is ChatEvent.TextChunk -> {
+                    responseContent.append(event.text)
+                    updateLastAgentMessage(responseContent.toString())
+                }
+                is ChatEvent.ToolStarted -> {
+                    _messages.update {
+                        it + ChatMessage(
+                            sender = "tool",
+                            text = "\n\nUsing ${event.toolName}...",
+                            type = MessageType.TOOL_CALL,
+                            timestamp = System.currentTimeMillis()
+                        )
+                    }
+                }
+                is ChatEvent.ToolResult -> {
+                    if (event.isError) {
+                        _messages.update {
+                            it + ChatMessage(
+                                sender = "tool",
+                                text = "${event.toolName} error: ${event.output.take(500)}",
+                                type = MessageType.TOOL_OUTPUT,
+                                timestamp = System.currentTimeMillis()
+                            )
+                        }
+                    }
+                }
+                is ChatEvent.ActionRequired -> {
+                    responseContent.append("\n\n${event.question}")
+                    updateLastAgentMessage(responseContent.toString())
+                }
+                is ChatEvent.Error -> {
+                    responseContent.append("\n\nError: ${event.message}")
+                    updateLastAgentMessage(responseContent.toString())
+                }
+                is ChatEvent.Done -> { /* Stream completed */ }
+            }
+        }
+    }
+
+    private suspend fun executeInSandbox(
+        prompt: String,
+        apiKey: String,
+        baseUrl: String,
+        modelName: String
+    ): Result<String> {
+        val client = ZenApiClient(apiKey = apiKey, baseUrl = baseUrl, model = modelName)
+        return client.sendMessage(listOf(ZenMessage("user", prompt)))
+    }
+
+    private suspend fun executeWithTermux(prompt: String): Result<String> {
+        val runner = TermuxRunner()
+        val result = runner.executeCommand("echo '${prompt.sq()}' | claude --print")
+        return result.map { it.output }
+    }
+
+    private suspend fun executeWithSsh(prompt: String, config: ConnectionConfig): Result<String> {
+        val sshConfig = ConnectionConfig(
+            executionMode = ExecutionMode.SSH,
+            host = config.host,
+            user = config.user,
+            authType = config.authType,
+            passwordKey = config.passwordKey
+        )
+        val connection = SshConnection(sshConfig)
+        val connectResult = connection.connect()
+        return connectResult.fold(
+            onSuccess = {
+                val sshResult = connection.executeCommand("echo '${prompt.sq()}' | opencode --print")
+                connection.disconnect()
+                sshResult.map { it.output }
+            },
+            onFailure = { Result.failure(it) }
+        )
+    }
+
+    private fun saveCurrentChat(firstPrompt: String) {
+        val title = if (firstPrompt.length > 40) firstPrompt.take(40) + "..." else firstPrompt
+        val session = ChatSession(
+            id = UUID.randomUUID().toString(),
+            title = title,
+            messages = _messages.value.toList(),
+            timestamp = System.currentTimeMillis()
+        )
+        _sessions.update { (listOf(session) + it).take(20) }
+    }
+
+    fun loadSession(session: ChatSession) {
+        _messages.value = session.messages
+    }
+
+    fun clearHistory() {
+        _messages.value = emptyList()
+    }
+
+    fun injectCrashLog(log: String) {
+        _messages.value = listOf(
+            ChatMessage(
+                sender = "system",
+                text = "Previous session crashed:\n$log",
+                type = MessageType.SYSTEM_ERROR,
+                timestamp = System.currentTimeMillis()
+            )
+        )
+    }
+
+    private fun String.sq(): String = this.replace("'", "'\\''")
 }
