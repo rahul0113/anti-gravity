@@ -125,7 +125,7 @@ fun EditorView(
                 }
                 ExecutionMode.SSH -> {
                     val result = SshConnection.listDirectory(config, path)
-                    result.map { FileItem(it.name, it.path, it.isDirectory, it.size, it.lastModified) }
+                    result.map { FileItem(it.name, it.path, it.isDirectory, it.size) }
                 }
                 ExecutionMode.OPENCLAUDE, ExecutionMode.SANDBOX -> {
                     withContext(Dispatchers.IO) {
@@ -753,7 +753,7 @@ fun EditorView(
                                 }
                             }
                         })
-                    }
+                    )
                 }
             }
         }
