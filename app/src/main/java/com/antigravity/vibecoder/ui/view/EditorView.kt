@@ -32,24 +32,20 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.antigravity.vibecoder.data.SshConnection
 import com.antigravity.vibecoder.data.TermuxRunner
 import com.antigravity.vibecoder.model.ConnectionConfig
-import com.antigravity.vibecoder.model.ExecutionMode
 import com.antigravity.vibecoder.model.WorkspaceFile
 import com.antigravity.vibecoder.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// Terminal history entry
 private data class TerminalLine(
     val prompt: String,
     val output: String,
     val isError: Boolean = false
 )
 
-// Parse `ls -la` output (works for both Termux and SSH)
 private fun parseLsLaOutput(output: String): List<WorkspaceFile> {
     return output.lines().drop(1).filter { it.isNotBlank() }.mapNotNull { line ->
         val parts = line.trim().split("\\s+".toRegex())
@@ -59,12 +55,7 @@ private fun parseLsLaOutput(output: String): List<WorkspaceFile> {
             if (name != "." && name != "..") {
                 val isDirectory = permissions.startsWith("d")
                 val size = parts[4].toLongOrNull() ?: 0L
-                WorkspaceFile(
-                    name = name,
-                    path = name,
-                    isDirectory = isDirectory,
-                    size = size
-                )
+                WorkspaceFile(name = name, path = name, isDirectory = isDirectory, size = size)
             } else null
         } else null
     }
@@ -83,45 +74,31 @@ fun EditorView(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val focusManager = LocalFocusManager.current
 
-    // File manager state
     var currentPath by rememberSaveable { mutableStateOf(config.workspacePath) }
     var files by remember { mutableStateOf<List<WorkspaceFile>>(emptyList()) }
     var selectedFile by remember { mutableStateOf<WorkspaceFile?>(null) }
     var fileContent by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var viewMode by rememberSaveable { mutableStateOf("terminal") } // "files", "editor", "terminal"
+    var viewMode by rememberSaveable { mutableStateOf("terminal") }
 
-    // Terminal state
     var terminalLines by remember { mutableStateOf<List<TerminalLine>>(emptyList()) }
     var terminalInput by remember { mutableStateOf(TextFieldValue("")) }
     var terminalHistory by remember { mutableStateOf<List<String>>(emptyList()) }
     var historyIndex by remember { mutableIntStateOf(-1) }
     var isTerminalRunning by remember { mutableStateOf(false) }
 
-    val monospace = FontFamily.Monospace
-
-    // Load files when path changes
+    // Load files when path changes — always uses TermuxRunner (local terminal)
     LaunchedEffect(currentPath) {
         isLoading = true
         errorMessage = null
         try {
             files = withContext(Dispatchers.IO) {
-                when (config.executionMode) {
-                    ExecutionMode.SSH -> {
-                        val result = SshConnection.listDirectory(config, currentPath)
-                        result.sortedWith(compareByDescending<WorkspaceFile> { it.isDirectory }.thenBy { it.name })
-                    }
-                    ExecutionMode.TERMUX_SERVICE -> {
-                        val result = TermuxRunner.executeCommand(context, "ls -la \"$currentPath\"", config.workspacePath)
-                        if (result.error == null) parseLsLaOutput(result.stdout) else {
-                            errorMessage = result.error
-                            emptyList()
-                        }
-                    }
-                    else -> emptyList() // No file browser for OPENCLAUDE/SANDBOX
+                val result = TermuxRunner.executeCommand(context, "ls -la \"$currentPath\"", config.workspacePath)
+                if (result.error == null) parseLsLaOutput(result.stdout) else {
+                    errorMessage = result.error
+                    emptyList()
                 }
             }
         } catch (e: Exception) {
@@ -135,24 +112,22 @@ fun EditorView(
             .fillMaxSize()
             .background(Color.Transparent)
     ) {
-        // === Top toolbar ===
+        // Top toolbar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Menu
             IconButton(onClick = onOpenDrawer, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Filled.Menu, "Menu", tint = TerminalWhite, modifier = Modifier.size(20.dp))
             }
 
-            // Path breadcrumb
             Text(
                 text = currentPath.removePrefix("/"),
                 color = TerminalWhite.copy(alpha = 0.7f),
                 fontSize = 12.sp,
-                fontFamily = monospace,
+                fontFamily = FontFamily.Monospace,
                 modifier = Modifier
                     .weight(1f)
                     .horizontalScroll(rememberScrollState())
@@ -160,22 +135,16 @@ fun EditorView(
                 maxLines = 1
             )
 
-            // View mode toggle
             ViewModeButton("Files", Icons.Filled.Folder, viewMode == "files") { viewMode = "files" }
             ViewModeButton("Editor", Icons.Filled.Edit, viewMode == "editor") { viewMode = "editor" }
-            ViewModeButton("Terminal", Icons.Filled.Terminal, viewMode == "terminal") { viewMode = "terminal" }
+            ViewModeButton("Terminal", Icons.Filled.Code, viewMode == "terminal") { viewMode = "terminal" }
         }
 
         HorizontalDivider(color = TerminalWhite.copy(alpha = 0.1f), thickness = 1.dp)
 
-        // === Main content ===
         when (viewMode) {
             "files" -> {
-                if (config.executionMode != ExecutionMode.SSH && config.executionMode != ExecutionMode.TERMUX_SERVICE) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("File browser requires Termux or SSH", color = TerminalWhite.copy(alpha = 0.5f))
-                    }
-                } else if (isLoading) {
+                if (isLoading) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = TerminalGreen, modifier = Modifier.size(32.dp))
                     }
@@ -184,20 +153,17 @@ fun EditorView(
                         Text(errorMessage ?: "", color = TerminalRed)
                     }
                 } else {
-                    // Go up button
                     if (currentPath != "/") {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    currentPath = currentPath.substringBeforeLast("/").ifEmpty { "/" }
-                                }
+                                .clickable { currentPath = currentPath.substringBeforeLast("/").ifEmpty { "/" } }
                                 .padding(horizontal = 16.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(Icons.Filled.ArrowUpward, "Up", tint = TerminalCyan, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("..", color = TerminalCyan, fontSize = 13.sp, fontFamily = monospace)
+                            Text("..", color = TerminalCyan, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
                         }
                     }
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -207,25 +173,17 @@ fun EditorView(
                                     .fillMaxWidth()
                                     .clickable {
                                         if (file.isDirectory) {
-                                            currentPath = if (currentPath.endsWith("/")) {
-                                                currentPath + file.name
-                                            } else {
-                                                "$currentPath/${file.name}"
-                                            }
+                                            currentPath = if (currentPath.endsWith("/")) currentPath + file.name
+                                            else "$currentPath/${file.name}"
                                         } else {
-                                            // Open file in editor
                                             selectedFile = file
                                             coroutineScope.launch {
                                                 try {
                                                     fileContent = withContext(Dispatchers.IO) {
-                                                        when (config.executionMode) {
-                                                            ExecutionMode.SSH -> SshConnection.readFile(config, "$currentPath/${file.name}")
-                                                            ExecutionMode.TERMUX_SERVICE -> {
-                                                                val result = TermuxRunner.executeCommand(context, "cat \"$currentPath/${file.name}\"", config.workspacePath)
-                                                                result.stdout
-                                                            }
-                                                            else -> ""
-                                                        }
+                                                        val result = TermuxRunner.executeCommand(
+                                                            context, "cat \"$currentPath/${file.name}\"", config.workspacePath
+                                                        )
+                                                        result.stdout
                                                     }
                                                     viewMode = "editor"
                                                 } catch (e: Exception) {
@@ -245,18 +203,9 @@ fun EditorView(
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        file.name,
-                                        color = TerminalWhite,
-                                        fontSize = 13.sp,
-                                        fontFamily = monospace
-                                    )
+                                    Text(file.name, color = TerminalWhite, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
                                     if (!file.isDirectory && file.size > 0) {
-                                        Text(
-                                            formatFileSize(file.size),
-                                            color = TerminalWhite.copy(alpha = 0.4f),
-                                            fontSize = 10.sp
-                                        )
+                                        Text(formatFileSize(file.size), color = TerminalWhite.copy(alpha = 0.4f), fontSize = 10.sp)
                                     }
                                 }
                             }
@@ -266,9 +215,7 @@ fun EditorView(
             }
 
             "editor" -> {
-                // File editor
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // File name bar
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -277,28 +224,18 @@ fun EditorView(
                     ) {
                         Icon(Icons.Filled.InsertDriveFile, null, tint = TerminalCyan, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            selectedFile?.name ?: "No file",
-                            color = TerminalWhite,
-                            fontSize = 13.sp,
-                            fontFamily = monospace
-                        )
+                        Text(selectedFile?.name ?: "No file", color = TerminalWhite, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
                         Spacer(modifier = Modifier.weight(1f))
-                        // Save button
                         if (selectedFile != null && fileContent.isNotBlank()) {
                             TextButton(onClick = {
                                 coroutineScope.launch {
                                     try {
                                         withContext(Dispatchers.IO) {
-                                            when (config.executionMode) {
-                                                ExecutionMode.SSH -> SshConnection.writeFile(config, "$currentPath/${selectedFile!!.name}", fileContent)
-                                                ExecutionMode.TERMUX_SERVICE -> TermuxRunner.executeCommand(
-                                                    context,
-                                                    "cat > \"$currentPath/${selectedFile!!.name}\" << 'ENDOFFILE'\n$fileContent\nENDOFFILE",
-                                                    config.workspacePath
-                                                )
-                                                else -> {}
-                                            }
+                                            TermuxRunner.executeCommand(
+                                                context,
+                                                "cat > \"$currentPath/${selectedFile!!.name}\" << 'ENDOFFILE'\n$fileContent\nENDOFFILE",
+                                                config.workspacePath
+                                            )
                                         }
                                         Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
                                     } catch (e: Exception) {
@@ -311,8 +248,6 @@ fun EditorView(
                         }
                     }
                     HorizontalDivider(color = TerminalWhite.copy(alpha = 0.1f), thickness = 1.dp)
-
-                    // Editor content
                     BasicTextField(
                         value = fileContent,
                         onValueChange = { fileContent = it },
@@ -331,13 +266,12 @@ fun EditorView(
             }
 
             "terminal" -> {
-                // Real terminal panel using TermuxRunner
+                // Terminal ALWAYS uses TermuxRunner — independent of AI mode
                 TerminalPanel(
                     lines = terminalLines,
                     input = terminalInput,
                     onInputChange = { terminalInput = it },
                     isRunning = isTerminalRunning,
-                    config = config,
                     onExecute = { cmd ->
                         terminalLines = terminalLines + TerminalLine("$ ", cmd)
                         terminalHistory = terminalHistory + cmd
@@ -347,21 +281,7 @@ fun EditorView(
 
                         coroutineScope.launch {
                             val result = withContext(Dispatchers.IO) {
-                                when (config.executionMode) {
-                                    ExecutionMode.TERMUX_SERVICE -> {
-                                        TermuxRunner.executeCommand(context, cmd, currentPath)
-                                    }
-                                    ExecutionMode.SSH -> {
-                                        val output = SshConnection.executeCommand(config, cmd)
-                                        TermuxRunner.TermuxResult(output, "", 0, null)
-                                    }
-                                    else -> {
-                                        TermuxRunner.TermuxResult(
-                                            "Terminal requires Termux or SSH execution mode.\nChange in Settings > Execution Mode.",
-                                            "", 1, "Not available"
-                                        )
-                                    }
-                                }
+                                TermuxRunner.executeCommand(context, cmd, currentPath)
                             }
 
                             val output = buildString {
@@ -376,7 +296,6 @@ fun EditorView(
                                 terminalLines = terminalLines + TerminalLine("", output, result.exitCode != 0)
                             }
 
-                            // Handle cd command
                             if (cmd.trimStart().startsWith("cd ")) {
                                 val target = cmd.trimStart().removePrefix("cd ").trim()
                                 val newPath = when {
@@ -391,9 +310,7 @@ fun EditorView(
                             isTerminalRunning = false
                         }
                     },
-                    onClear = {
-                        terminalLines = emptyList()
-                    },
+                    onClear = { terminalLines = emptyList() },
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -407,52 +324,34 @@ private fun TerminalPanel(
     input: TextFieldValue,
     onInputChange: (TextFieldValue) -> Unit,
     isRunning: Boolean,
-    config: ConnectionConfig,
     onExecute: (String) -> Unit,
     onClear: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val focusManager = LocalFocusManager.current
-    val scrollState = rememberScrollState()
 
     Column(
         modifier = modifier.background(Color.Black.copy(alpha = 0.4f))
     ) {
-        // Terminal toolbar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Filled.Terminal, null, tint = TerminalGreen, modifier = Modifier.size(16.dp))
+            Icon(Icons.Filled.Code, null, tint = TerminalGreen, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                "Terminal",
-                color = TerminalWhite,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            )
+            Text("Terminal", color = TerminalWhite, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             Spacer(modifier = Modifier.weight(1f))
-            // Mode indicator
-            Text(
-                when (config.executionMode) {
-                    ExecutionMode.TERMUX_SERVICE -> "Termux"
-                    ExecutionMode.SSH -> "SSH"
-                    else -> "Local"
-                },
-                color = TerminalGreen.copy(alpha = 0.7f),
-                fontSize = 10.sp
-            )
+            Text("Termux", color = TerminalGreen.copy(alpha = 0.7f), fontSize = 10.sp)
             Spacer(modifier = Modifier.width(8.dp))
             IconButton(onClick = onClear, modifier = Modifier.size(24.dp)) {
-                Icon(Icons.Filled.DeleteSweep, "Clear", tint = TerminalWhite.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
+                Icon(Icons.Filled.ClearAll, "Clear", tint = TerminalWhite.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
             }
         }
 
         HorizontalDivider(color = TerminalWhite.copy(alpha = 0.08f), thickness = 1.dp)
 
-        // Terminal output
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
@@ -461,16 +360,11 @@ private fun TerminalPanel(
         ) {
             items(lines) { line ->
                 if (line.prompt.isNotEmpty()) {
-                    Text(
-                        text = line.prompt,
-                        color = TerminalGreen,
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
+                    Text(line.prompt, color = TerminalGreen, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
                 }
                 if (line.output.isNotEmpty()) {
                     Text(
-                        text = line.output,
+                        line.output,
                         color = if (line.isError) TerminalRed else TerminalWhite.copy(alpha = 0.85f),
                         fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace
@@ -479,7 +373,6 @@ private fun TerminalPanel(
             }
         }
 
-        // Input line
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -504,19 +397,13 @@ private fun TerminalPanel(
                 keyboardActions = KeyboardActions(
                     onGo = {
                         val cmd = input.text
-                        if (cmd.isNotBlank()) {
-                            onExecute(cmd)
-                        }
+                        if (cmd.isNotBlank()) onExecute(cmd)
                         focusManager.clearFocus()
                     }
                 )
             )
             if (isRunning) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(14.dp),
-                    color = TerminalGreen,
-                    strokeWidth = 2.dp
-                )
+                CircularProgressIndicator(modifier = Modifier.size(14.dp), color = TerminalGreen, strokeWidth = 2.dp)
             }
         }
     }
