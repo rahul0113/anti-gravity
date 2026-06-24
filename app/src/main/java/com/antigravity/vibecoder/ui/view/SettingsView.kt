@@ -7,7 +7,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -34,6 +33,54 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+// Supported providers matching OpenClaude's /provider command
+private enum class SetupProvider(
+    val displayName: String,
+    val description: String,
+    val icon: ImageVector,
+    val color: Color,
+    val envVars: List<String>, // env vars needed
+    val defaultBaseUrl: String,
+    val defaultModel: String,
+    val keyPlaceholder: String
+) {
+    OPENAI(
+        "OpenAI", "GPT-4o, GPT-4.1, o3", Icons.Default.SmartToy, TerminalGreen,
+        listOf("CLAUDE_CODE_USE_OPENAI=1", "OPENAI_API_KEY", "OPENAI_MODEL"),
+        "https://api.openai.com/v1", "gpt-4o", "sk-..."
+    ),
+    ANTHROPIC(
+        "Anthropic", "Claude Sonnet, Opus, Haiku", Icons.Default.Psychology, TerminalAmber,
+        listOf("ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"),
+        "https://api.anthropic.com", "claude-sonnet-4-20250514", "sk-ant-..."
+    ),
+    GEMINI(
+        "Google Gemini", "Gemini 2.5, 2.0 Flash", Icons.Default.AutoAwesome, TerminalCyan,
+        listOf("GEMINI_API_KEY"),
+        "https://generativelanguage.googleapis.com/v1beta", "gemini-2.5-flash", "AI..."
+    ),
+    DEEPSEEK(
+        "DeepSeek", "DeepSeek V3, R1", Icons.Default.Code, Color(0xFF4A9EFF),
+        listOf("CLAUDE_CODE_USE_OPENAI=1", "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL"),
+        "https://api.deepseek.com/v1", "deepseek-chat", "sk-..."
+    ),
+    GITHUB_MODELS(
+        "GitHub Models", "GPT-4o, Llama, Phi via GitHub", Icons.Default.AccountCircle, TerminalWhite,
+        listOf("CLAUDE_CODE_USE_GITHUB=1", "GITHUB_TOKEN"),
+        "https://models.inference.ai.azure.com", "gpt-4o", "ghp_..."
+    ),
+    OLLAMA(
+        "Ollama (Local)", "Llama, Qwen, DeepSeek locally", Icons.Default.PhoneAndroid, TerminalGreen,
+        listOf("CLAUDE_CODE_USE_OPENAI=1", "OPENAI_BASE_URL", "OPENAI_MODEL"),
+        "http://localhost:11434/v1", "qwen2.5-coder:7b", ""
+    ),
+    OPENCODE_ZEN(
+        "OpenCode Zen", "Pay-as-you-go AI gateway", Icons.Default.Bolt, Color(0xFF9C27B0),
+        listOf("OPENCODE_API_KEY", "OPENAI_BASE_URL=https://opencode.ai/zen/v1", "OPENAI_MODEL=anthropic/claude-sonnet-4-20250514"),
+        "https://opencode.ai/zen/v1", "anthropic/claude-sonnet-4-20250514", ""
+    )
+}
+
 @Composable
 fun SettingsView(
     apiKey: String,
@@ -48,23 +95,21 @@ fun SettingsView(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var isApiKeyVisible by remember { mutableStateOf(false) }
-    var isSshPasswordVisible by remember { mutableStateOf(false) }
-
-    // Installer state
+    var currentStep by remember { mutableIntStateOf(0) } // 0=setup, 1=configure, 2=done
+    var selectedProvider by remember { mutableStateOf<SetupProvider?>(null) }
+    var inputApiKey by remember { mutableStateOf(apiKey) }
     var isInstalling by remember { mutableStateOf(false) }
-    var installStep by remember { mutableStateOf("") }
-    var installProgress by remember { mutableFloatStateOf(0f) }
     var installLog by remember { mutableStateOf<List<String>>(emptyList()) }
+    var isServerRunning by remember { mutableStateOf(false) }
     var openClaudeInstalled by remember { mutableStateOf(false) }
-    var showInstaller by remember { mutableStateOf(false) }
 
-    // Check if openclaude is already installed
+    // Check if OpenClaude is installed
     LaunchedEffect(Unit) {
         val result = withContext(Dispatchers.IO) {
             TermuxRunner.executeCommand(context, "which openclaude 2>/dev/null || test -f ~/openclaude/dist/cli.mjs && echo 'found'", config.workspacePath)
         }
         openClaudeInstalled = result.stdout.trim().isNotEmpty()
+        if (openClaudeInstalled) currentStep = 1
     }
 
     Column(
@@ -73,284 +118,357 @@ fun SettingsView(
             .background(Color.Transparent)
             .padding(horizontal = 16.dp)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Spacer(modifier = Modifier.height(8.dp))
 
-        // === OpenClaude Setup ===
-        SectionCard {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(TerminalGreen.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Filled.SmartToy, null, tint = TerminalGreen, modifier = Modifier.size(22.dp))
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("OpenClaude AI Agent", color = TerminalWhite, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        if (openClaudeInstalled) "Installed and ready" else "One-click install from GitHub",
-                        color = if (openClaudeInstalled) TerminalGreen else TerminalWhite.copy(alpha = 0.5f),
-                        fontSize = 12.sp
-                    )
-                }
-                if (openClaudeInstalled) {
-                    Icon(Icons.Filled.CheckCircle, null, tint = TerminalGreen, modifier = Modifier.size(20.dp))
-                }
-            }
+        // Step indicator
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            StepDot(1, currentStep >= 0, "Install")
+            StepLine()
+            StepDot(2, currentStep >= 1, "Provider")
+            StepLine()
+            StepDot(3, currentStep >= 2, "Done")
+        }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (!showInstaller) {
-                // Main button
-                Button(
-                    onClick = {
-                        if (openClaudeInstalled) {
-                            // Toggle server
-                            onConfigChange(config.copy(
-                                executionMode = if (config.executionMode == ExecutionMode.OPENCLAUDE) ExecutionMode.SANDBOX else ExecutionMode.OPENCLAUDE
-                            ))
-                        } else {
-                            showInstaller = true
+        when (currentStep) {
+            0 -> InstallStep(
+                isInstalling = isInstalling,
+                installLog = installLog,
+                onInstall = {
+                    isInstalling = true
+                    installLog = emptyList()
+                    scope.launch {
+                        runInstaller(context, config.workspacePath) { step, log ->
+                            installLog = installLog + log
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (openClaudeInstalled) {
-                            if (config.executionMode == ExecutionMode.OPENCLAUDE) TerminalGreen else Color.Gray.copy(alpha = 0.3f)
-                        } else TerminalGreen
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(
-                        if (openClaudeInstalled) Icons.Filled.PowerSettingsNew else Icons.Filled.Download,
-                        null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        when {
-                            config.executionMode == ExecutionMode.OPENCLAUDE -> "AI Agent Active"
-                            openClaudeInstalled -> "Enable AI Agent"
-                            else -> "Install OpenClaude"
-                        },
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-
-            // Installer UI
-            AnimatedVisibility(visible = showInstaller) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (!isInstalling) {
-                        // Pre-install: show what will happen
-                        Text(
-                            "This will install OpenClaude from GitHub into Termux. You need ~700MB free space.",
-                            color = TerminalWhite.copy(alpha = 0.6f),
-                            fontSize = 12.sp
-                        )
-
-                        Text("What gets installed:", color = TerminalWhite, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        listOf(
-                            "Node.js, git, proot-distro",
-                            "Ubuntu environment (proot)",
-                            "Bun runtime (inside Ubuntu)",
-                            "OpenClaude CLI from GitHub"
-                        ).forEach { step ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Filled.Check, null, tint = TerminalGreen, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(step, color = TerminalWhite.copy(alpha = 0.7f), fontSize = 12.sp)
-                            }
-                        }
-
-                        // Provider key input (optional before install)
-                        OutlinedTextField(
-                            value = apiKey,
-                            onValueChange = onApiKeyChange,
-                            label = { Text("API Key (optional, set later)") },
-                            placeholder = { Text("sk-... or OpenRouter key") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            visualTransformation = if (isApiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            trailingIcon = {
-                                IconButton(onClick = { isApiKeyVisible = !isApiKeyVisible }) {
-                                    Icon(
-                                        if (isApiKeyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                        null,
-                                        tint = TerminalWhite.copy(alpha = 0.5f)
-                                    )
-                                }
-                            },
-                            colors = inputFieldColors(),
-                            textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
-                        )
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(
-                                onClick = { showInstaller = false },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Text("Cancel", color = TerminalWhite.copy(alpha = 0.6f))
-                            }
-                            Button(
-                                onClick = {
-                                    isInstalling = true
-                                    installProgress = 0f
-                                    installLog = emptyList()
-                                    scope.launch {
-                                        runInstaller(context, config.workspacePath) { step, progress, log ->
-                                            installStep = step
-                                            installProgress = progress
-                                            if (log != null) installLog = installLog + log
-                                        }
-                                        isInstalling = false
-                                        openClaudeInstalled = true
-                                        showInstaller = false
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = TerminalGreen),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.Filled.PlayArrow, null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Install", fontWeight = FontWeight.Medium)
-                            }
-                        }
-                    } else {
-                        // Installing: show progress
-                        Text("Installing OpenClaude...", color = TerminalWhite, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        Text(installStep, color = TerminalGreen, fontSize = 12.sp)
-
-                        LinearProgressIndicator(
-                            progress = { installProgress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp)),
-                            color = TerminalGreen,
-                            trackColor = Color.White.copy(alpha = 0.1f)
-                        )
-
-                        // Log output
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 150.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color.Black.copy(alpha = 0.5f))
-                                .padding(8.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                installLog.forEach { line ->
-                                    Text(
-                                        line,
-                                        color = TerminalWhite.copy(alpha = 0.7f),
-                                        fontSize = 10.sp,
-                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                        lineHeight = 14.sp
-                                    )
-                                }
-                            }
-                        }
+                        isInstalling = false
+                        openClaudeInstalled = true
+                        currentStep = 1
                     }
-                }
-            }
-        }
-
-        // === Server Config (when OpenClaude enabled) ===
-        if (config.executionMode == ExecutionMode.OPENCLAUDE && openClaudeInstalled) {
-            SectionCard {
-                SectionHeader(Icons.Filled.Tune, "Server Config")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    NumberInput("HTTP Port", config.port, { onConfigChange(config.copy(port = it)) }, Modifier.weight(1f))
-                    NumberInput("gRPC Port", config.grpcPort, { onConfigChange(config.copy(grpcPort = it)) }, Modifier.weight(1f))
-                }
-                TextInput("Working Dir", config.workspacePath, { onConfigChange(config.copy(workspacePath = it)) })
-            }
-        }
-
-        // === AI Provider (for sandbox mode or API key) ===
-        SectionCard {
-            SectionHeader(Icons.Filled.Cloud, "AI Provider")
-            Text(
-                "For direct API chat (without OpenClaude agent)",
-                color = TerminalWhite.copy(alpha = 0.4f),
-                fontSize = 11.sp
+                },
+                onSkip = { currentStep = 1 }
             )
-            Spacer(modifier = Modifier.height(4.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Provider.entries.filter { it != Provider.OPENCLAUDE }.forEach { provider ->
-                    val selected = baseUrl == provider.defaultBaseUrl
-                    FilterChip(
-                        selected = selected,
-                        onClick = {
-                            onBaseUrlChange(provider.defaultBaseUrl)
-                            onModelNameChange(provider.defaultModel)
-                        },
-                        label = { Text(provider.displayName, fontSize = 11.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = TerminalGreen.copy(alpha = 0.2f),
-                            selectedLabelColor = TerminalGreen
-                        ),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                }
-            }
-
-            if (apiKey.isNotBlank() || config.executionMode != ExecutionMode.OPENCLAUDE) {
-                Spacer(modifier = Modifier.height(8.dp))
-                TextInput("API Key", apiKey, onApiKeyChange, isPassword = true, isPasswordVisible = isApiKeyVisible, onTogglePassword = { isApiKeyVisible = !isApiKeyVisible })
-            }
-
-            if (config.executionMode != ExecutionMode.OPENCLAUDE) {
-                TextInput("Base URL", baseUrl, onBaseUrlChange)
-                TextInput("Model", modelName, onModelNameChange)
-            }
-        }
-
-        // === SSH (optional remote execution) ===
-        SectionCard {
-            SectionHeader(Icons.Filled.Security, "SSH Remote")
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text("Remote machine execution", color = TerminalWhite, fontSize = 13.sp)
-                    Text("Connect to a remote dev box or VPS", color = TerminalWhite.copy(alpha = 0.4f), fontSize = 11.sp)
-                }
-                Switch(
-                    checked = config.executionMode == ExecutionMode.SSH,
-                    onCheckedChange = { onConfigChange(config.copy(executionMode = if (it) ExecutionMode.SSH else ExecutionMode.SANDBOX)) },
-                    colors = SwitchDefaults.colors(checkedTrackColor = TerminalGreen)
-                )
-            }
-
-            AnimatedVisibility(visible = config.executionMode == ExecutionMode.SSH) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextInput("Host", config.host, { onConfigChange(config.copy(host = it)) }, placeholder = "192.168.1.100")
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        NumberInput("Port", config.port, { onConfigChange(config.copy(port = it)) }, Modifier.weight(1f))
-                        TextInput("User", config.user, { onConfigChange(config.copy(user = it)) }, Modifier.weight(1f), placeholder = "android")
+            1 -> ProviderStep(
+                selectedProvider = selectedProvider,
+                onSelectProvider = { selectedProvider = it },
+                apiKey = inputApiKey,
+                onApiKeyChange = { inputApiKey = it },
+                onContinue = {
+                    selectedProvider?.let { provider ->
+                        // Save provider config
+                        onBaseUrlChange(provider.defaultBaseUrl)
+                        onModelNameChange(provider.defaultModel)
+                        onApiKeyChange(inputApiKey)
+                        scope.launch { saveOpenClaudeProfile(context, config.workspacePath, provider, inputApiKey) }
+                        currentStep = 2
                     }
-                    TextInput("Password / Key", config.passwordKey, { onConfigChange(config.copy(passwordKey = it)) }, isPassword = true, isPasswordVisible = isSshPasswordVisible, onTogglePassword = { isSshPasswordVisible = !isSshPasswordVisible })
-                }
-            }
+                },
+                onBack = { currentStep = 0 }
+            )
+
+            2 -> DoneStep(
+                provider = selectedProvider,
+                isServerRunning = isServerRunning,
+                onStartServer = {
+                    scope.launch {
+                        TermuxRunner.executeCommand(context, "openclaude serve --port ${config.port} &", config.workspacePath)
+                        isServerRunning = true
+                    }
+                },
+                onStopServer = {
+                    scope.launch {
+                        TermuxRunner.executeCommand(context, "pkill -f 'openclaude serve'", config.workspacePath)
+                        isServerRunning = false
+                    }
+                },
+                onReconfigure = { currentStep = 1 },
+                config = config,
+                onConfigChange = onConfigChange
+            )
         }
 
         Spacer(modifier = Modifier.height(32.dp))
+    }
+}
+
+@Composable
+private fun StepDot(number: Int, active: Boolean, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (active) TerminalGreen else Color.Gray.copy(alpha = 0.3f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("$number", color = if (active) Color.Black else TerminalWhite.copy(alpha = 0.5f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(label, color = if (active) TerminalGreen else TerminalWhite.copy(alpha = 0.4f), fontSize = 10.sp)
+    }
+}
+
+@Composable
+private fun StepLine() {
+    Box(
+        modifier = Modifier
+            .width(40.dp)
+            .height(2.dp)
+            .padding(horizontal = 8.dp)
+            .background(TerminalWhite.copy(alpha = 0.15f))
+    )
+}
+
+// === Step 1: Install ===
+@Composable
+private fun InstallStep(
+    isInstalling: Boolean,
+    installLog: List<String>,
+    onInstall: () -> Unit,
+    onSkip: () -> Unit
+) {
+    SectionCard {
+        SectionHeader(Icons.Default.Download, "Install OpenClaude")
+        Text(
+            "OpenClaude is an AI coding agent with 200+ model support, tools, and file editing.",
+            color = TerminalWhite.copy(alpha = 0.6f), fontSize = 12.sp
+        )
+
+        if (!isInstalling) {
+            Text("Installation includes:", color = TerminalWhite, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            listOf(
+                "Node.js & npm (via Termux packages)",
+                "OpenClaude CLI (@gitlawb/openclaude)",
+                "Provider profile configuration"
+            ).forEach { item ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Check, null, tint = TerminalGreen, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(item, color = TerminalWhite.copy(alpha = 0.7f), fontSize = 12.sp)
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onSkip, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) {
+                    Text("Skip", color = TerminalWhite.copy(alpha = 0.6f))
+                }
+                Button(
+                    onClick = onInstall,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = TerminalGreen),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Install", fontWeight = FontWeight.Medium)
+                }
+            }
+        } else {
+            Text("Installing...", color = TerminalGreen, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            LinearProgressIndicator(
+                progress = { (installLog.size.coerceAtMost(8) / 8f) },
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                color = TerminalGreen, trackColor = Color.White.copy(alpha = 0.1f)
+            )
+            Box(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 120.dp)
+                    .clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.5f)).padding(8.dp)
+            ) {
+                Column {
+                    installLog.takeLast(8).forEach { line ->
+                        Text(line, color = TerminalWhite.copy(alpha = 0.7f), fontSize = 10.sp, lineHeight = 14.sp,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// === Step 2: Provider ===
+@Composable
+private fun ProviderStep(
+    selectedProvider: SetupProvider?,
+    onSelectProvider: (SetupProvider) -> Unit,
+    apiKey: String,
+    onApiKeyChange: (String) -> Unit,
+    onContinue: () -> Unit,
+    onBack: () -> Unit
+) {
+    SectionCard {
+        SectionHeader(Icons.Default.Cloud, "Choose AI Provider")
+        Text(
+            "Select your provider and enter your API key. This mirrors the /provider setup in the OpenClaude CLI.",
+            color = TerminalWhite.copy(alpha = 0.6f), fontSize = 12.sp
+        )
+
+        SetupProvider.entries.forEach { provider ->
+            val isSelected = selectedProvider == provider
+            val bgColor = if (isSelected) TerminalGreen.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.05f)
+            val borderColor = if (isSelected) TerminalGreen.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.1f)
+
+            Row(
+                modifier = Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(bgColor)
+                    .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+                    .clickable { onSelectProvider(provider) }
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(provider.icon, null, tint = provider.color, modifier = Modifier.size(24.dp))
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(provider.displayName, color = TerminalWhite, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Text(provider.description, color = TerminalWhite.copy(alpha = 0.5f), fontSize = 11.sp)
+                }
+                if (isSelected) {
+                    Icon(Icons.Default.CheckCircle, null, tint = TerminalGreen, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+
+        // API Key input (shown when provider selected and needs a key)
+        AnimatedVisibility(visible = selectedProvider != null && selectedProvider.keyPlaceholder.isNotEmpty()) {
+            Column {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = apiKey,
+                    onValueChange = onApiKeyChange,
+                    label = { Text("API Key") },
+                    placeholder = { Text(selectedProvider?.keyPlaceholder ?: "") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    colors = inputFieldColors(),
+                    textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
+                )
+                // Show env vars that will be set
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Environment variables:", color = TerminalWhite.copy(alpha = 0.4f), fontSize = 10.sp)
+                selectedProvider?.envVars?.forEach { env ->
+                    Text("  $env", color = TerminalGreen.copy(alpha = 0.6f), fontSize = 10.sp,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                }
+            }
+        }
+
+        // Continue button
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) {
+                Icon(Icons.Default.ArrowBack, null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Back", color = TerminalWhite.copy(alpha = 0.6f))
+            }
+            Button(
+                onClick = onContinue,
+                modifier = Modifier.weight(1f),
+                enabled = selectedProvider != null,
+                colors = ButtonDefaults.buttonColors(containerColor = TerminalGreen, disabledContainerColor = Color.Gray.copy(alpha = 0.3f)),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("Continue", fontWeight = FontWeight.Medium)
+            }
+        }
+    }
+}
+
+// === Step 3: Done ===
+@Composable
+private fun DoneStep(
+    provider: SetupProvider?,
+    isServerRunning: Boolean,
+    onStartServer: () -> Unit,
+    onStopServer: () -> Unit,
+    onReconfigure: () -> Unit,
+    config: ConnectionConfig,
+    onConfigChange: (ConnectionConfig) -> Unit
+) {
+    SectionCard {
+        SectionHeader(Icons.Default.CheckCircle, "Setup Complete")
+        Text(
+            "Provider: ${provider?.displayName ?: "None"}",
+            color = TerminalGreen, fontSize = 14.sp, fontWeight = FontWeight.Medium
+        )
+        Text(
+            "Model: ${provider?.defaultModel ?: "None"}",
+            color = TerminalWhite.copy(alpha = 0.6f), fontSize = 12.sp
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Server control
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("OpenClaude Server", color = TerminalWhite, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Text(
+                    if (isServerRunning) "Running on port ${config.port}" else "Stopped",
+                    color = if (isServerRunning) TerminalGreen else TerminalWhite.copy(alpha = 0.4f),
+                    fontSize = 11.sp
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (!isServerRunning) {
+                    Button(
+                        onClick = onStartServer,
+                        colors = ButtonDefaults.buttonColors(containerColor = TerminalGreen),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Start")
+                    }
+                } else {
+                    OutlinedButton(onClick = onStopServer, shape = RoundedCornerShape(8.dp)) {
+                        Icon(Icons.Default.Stop, null, modifier = Modifier.size(16.dp), tint = TerminalRed)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Stop", color = TerminalRed)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Server config
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NumberInput("Port", config.port, { onConfigChange(config.copy(port = it)) }, Modifier.weight(1f))
+            NumberInput("gRPC Port", config.grpcPort, { onConfigChange(config.copy(grpcPort = it)) }, Modifier.weight(1f))
+        }
+        TextInput("Working Dir", config.workspacePath, { onConfigChange(config.copy(workspacePath = it)) })
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = onReconfigure,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(Icons.Default.Settings, null, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Reconfigure", color = TerminalWhite.copy(alpha = 0.6f), fontSize = 12.sp)
+            }
+            OutlinedButton(
+                onClick = onReconfigure,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Switch Provider", color = TerminalWhite.copy(alpha = 0.6f), fontSize = 12.sp)
+            }
+        }
     }
 }
 
@@ -359,8 +477,7 @@ fun SettingsView(
 @Composable
 private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(Color.White.copy(alpha = 0.05f))
             .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
@@ -380,55 +497,21 @@ private fun SectionHeader(icon: ImageVector, title: String) {
 }
 
 @Composable
-private fun TextInput(
-    label: String,
-    value: String,
-    onValueChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    placeholder: String = "",
-    isPassword: Boolean = false,
-    isPasswordVisible: Boolean = false,
-    onTogglePassword: (() -> Unit)? = null
-) {
+private fun TextInput(label: String, value: String, onValueChange: (String) -> Unit) {
     OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
+        value = value, onValueChange = onValueChange,
         label = { Text(label) },
-        placeholder = if (placeholder.isNotEmpty()) {{ Text(placeholder, color = TerminalWhite.copy(alpha = 0.3f)) }} else null,
-        modifier = modifier.fillMaxWidth(),
-        singleLine = true,
-        visualTransformation = if (isPassword && !isPasswordVisible) PasswordVisualTransformation() else VisualTransformation.None,
-        trailingIcon = {
-            if (isPassword && onTogglePassword != null) {
-                IconButton(onClick = onTogglePassword) {
-                    Icon(
-                        if (isPasswordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                        null,
-                        tint = TerminalWhite.copy(alpha = 0.5f)
-                    )
-                }
-            }
-        },
-        colors = inputFieldColors(),
-        textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
+        modifier = Modifier.fillMaxWidth(), singleLine = true,
+        colors = inputFieldColors(), textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
     )
 }
 
 @Composable
-private fun NumberInput(
-    label: String,
-    value: Int,
-    onValueChange: (Int) -> Unit,
-    modifier: Modifier = Modifier
-) {
+private fun NumberInput(label: String, value: Int, onValueChange: (Int) -> Unit, modifier: Modifier = Modifier) {
     OutlinedTextField(
-        value = value.toString(),
-        onValueChange = { onValueChange(it.toIntOrNull() ?: value) },
-        label = { Text(label) },
-        modifier = modifier,
-        singleLine = true,
-        colors = inputFieldColors(),
-        textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
+        value = value.toString(), onValueChange = { onValueChange(it.toIntOrNull() ?: value) },
+        label = { Text(label) }, modifier = modifier, singleLine = true,
+        colors = inputFieldColors(), textStyle = LocalTextStyle.current.copy(fontSize = 13.sp)
     )
 }
 
@@ -443,36 +526,66 @@ private fun inputFieldColors() = OutlinedTextFieldDefaults.colors(
     unfocusedLabelColor = TerminalWhite.copy(alpha = 0.4f)
 )
 
-// === Installer ===
+// === Installer & Profile ===
 
 private suspend fun runInstaller(
     context: android.content.Context,
     workspacePath: String,
-    onProgress: (step: String, progress: Float, log: String?) -> Unit
+    onLog: (String) -> Unit
 ) = withContext(Dispatchers.IO) {
-    data class Step(val name: String, val command: String, val progress: Float)
-
     val steps = listOf(
-        Step("Installing Node.js & dependencies", "pkg update -y && pkg install -y nodejs-lts git proot-distro", 0.15f),
-        Step("Cloning OpenClaude from GitHub", "cd ~ && rm -rf openclaude && git clone https://github.com/Gitlawb/openclaude.git", 0.30f),
-        Step("Installing npm packages", "cd ~/openclaude && npm install 2>&1", 0.45f),
-        Step("Setting up proot Ubuntu", "proot-distro install ubuntu 2>&1", 0.60f),
-        Step("Installing Bun in Ubuntu", "proot-distro login ubuntu -- bash -c 'curl -fsSL https://bun.sh/install | bash && source ~/.bashrc' 2>&1", 0.75f),
-        Step("Building OpenClaude", "proot-distro login ubuntu -- bash -c 'cd /data/data/com.termux/files/home/openclaude && bun run build' 2>&1", 0.90f),
-        Step("Creating launcher script", "cat > ~/openclaude-launch.sh << 'LAUNCHER'\n#!/data/data/com.termux/files/usr/bin/bash\nproot-distro login ubuntu -- bash -c 'cd /data/data/com.termux/files/home/openclaude && source ~/.bashrc && node dist/cli.mjs \"\\$@\"'\nLAUNCHER\nchmod +x ~/openclaude-launch.sh", 0.95f),
-        Step("Linking openclaude command", "ln -sf ~/openclaude-launch.sh /data/data/com.termux/files/usr/bin/openclaude", 1.0f)
+        "pkg update -y && pkg install -y nodejs-lts git" to "Installing Node.js & git",
+        "npm install -g @gitlawb/openclaude@latest 2>&1" to "Installing OpenClaude CLI"
     )
+    for ((cmd, desc) in steps) {
+        onLog(">>> $desc")
+        val result = TermuxRunner.executeCommand(context, cmd, workspacePath)
+        val output = result.stdout.trim().lines().lastOrNull() ?: ""
+        if (result.exitCode == 0) onLog("  OK: $output") else onLog("  WARN: ${result.stderr?.trim()?.take(80) ?: output}")
+    }
+    onLog("Installation complete!")
+}
 
-    for (step in steps) {
-        onProgress(step.name, step.progress, ">>> ${step.command.take(80)}...")
-        val result = TermuxRunner.executeCommand(context, step.command, workspacePath)
-        val output = if (result.stdout.isNotBlank()) result.stdout.trim().lines().lastOrNull() ?: "" else ""
-        val error = result.stderr?.trim()?.lines()?.lastOrNull() ?: ""
-
-        if (result.exitCode != 0 && error.isNotBlank() && !error.contains("already") && !error.contains("WARN")) {
-            onProgress("Error: ${step.name}", step.progress, "ERR: $error")
-        } else {
-            onProgress(step.name, step.progress, if (output.isNotBlank()) output.take(120) else null)
+private suspend fun saveOpenClaudeProfile(
+    context: android.content.Context,
+    workspacePath: String,
+    provider: SetupProvider,
+    apiKey: String
+) = withContext(Dispatchers.IO) {
+    // Set environment variables for the selected provider
+    val envExports = buildString {
+        provider.envVars.forEach { envVar ->
+            val (name, value) = if (envVar.contains("=")) {
+                envVar.split("=", limit = 2)
+            } else {
+                envVar to apiKey
+            }
+            appendLine("export $name=\"$value\"")
         }
     }
+
+    // Save to .bashrc for persistence
+    val bashrcCmd = """
+        cat >> ~/.bashrc << 'ENVEOF'
+$envExports
+ENVEOF
+    """.trimIndent()
+    TermuxRunner.executeCommand(context, bashrcCmd, workspacePath)
+
+    // Create the OpenClaude profile JSON
+    val profileJson = """
+        {
+            "provider": "${provider.name.lowercase()}",
+            "model": "${provider.defaultModel}",
+            "base_url": "${provider.defaultBaseUrl}",
+            "api_key": "$apiKey"
+        }
+    """.trimIndent()
+
+    val profileCmd = """
+        mkdir -p ~/.openclaude && cat > ~/.openclaude/.openclaude-profile.json << 'PROFILE'
+$profileJson
+PROFILE
+    """.trimIndent()
+    TermuxRunner.executeCommand(context, profileCmd, workspacePath)
 }
