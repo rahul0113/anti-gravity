@@ -248,11 +248,10 @@ fun SettingsView(
                                 .background(Color.Black.copy(alpha = 0.5f))
                                 .padding(8.dp)
                         ) {
-                            androidx.compose.foundation.lazy.LazyColumn(
-                                modifier = Modifier.fillMaxWidth(),
-                                state = rememberLazyListState()
+                            Column(
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                items(installLog) { line ->
+                                installLog.forEach { line ->
                                     Text(
                                         line,
                                         color = TerminalWhite.copy(alpha = 0.7f),
@@ -260,6 +259,7 @@ fun SettingsView(
                                         fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                                         lineHeight = 14.sp
                                     )
+                                }
                                 }
                             }
                         }
@@ -477,5 +477,3 @@ private suspend fun runInstaller(
         }
     }
 }
-
-private fun rememberLazyListState() = androidx.compose.foundation.lazy.rememberLazyListState()
